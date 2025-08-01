@@ -1,0 +1,95 @@
+# Development Docker Compose
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: apkbilling_postgres_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: apkbilling
+      POSTGRES_USER: apkbilling_user
+      POSTGRES_PASSWORD: apkbilling_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - apkbilling_network
+
+  # Redis for caching
+  redis:
+    image: redis:7-alpine
+    container_name: apkbilling_redis_dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - apkbilling_network
+
+  # Backend API (Development mode with hot reload)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    container_name: apkbilling_backend_dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: apkbilling
+      DB_USER: apkbilling_user
+      DB_PASSWORD: apkbilling_password
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: dev-jwt-secret-key
+      PORT: 3000
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - apkbilling_network
+    command: npm run dev
+
+  # Admin Panel (Development mode)
+  frontend:
+    build:
+      context: ./admin-panel
+      dockerfile: Dockerfile.dev
+    container_name: apkbilling_frontend_dev
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:3000/api
+      REACT_APP_SOCKET_URL: http://localhost:3000
+      CHOKIDAR_USEPOLLING: true
+    volumes:
+      - ./admin-panel:/app
+      - /app/node_modules
+    depends_on:
+      - backend
+    networks:
+      - apkbilling_network
+    command: npm start
+
+volumes:
+  postgres_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+
+networks:
+  apkbilling_network:
+    driver: bridge

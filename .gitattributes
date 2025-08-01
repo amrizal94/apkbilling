@@ -1,0 +1,162 @@
+# ================================
+# APK BILLING SYSTEM .gitattributes
+# ================================
+
+# ================================
+# AUTO DETECT TEXT FILES
+# ================================
+* text=auto
+
+# ================================
+# TEXT FILES
+# ================================
+# Source code
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.xml text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.less text eol=lf
+
+# Java files
+*.java text eol=lf
+*.kt text eol=lf
+*.gradle text eol=lf
+
+# Configuration files
+*.yml text eol=lf
+*.yaml text eol=lf
+*.toml text eol=lf
+*.ini text eol=lf
+*.conf text eol=lf
+*.config text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+*.rst text eol=lf
+
+# Scripts
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# SQL files
+*.sql text eol=lf
+
+# Environment files
+.env* text eol=lf
+
+# Docker files
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+
+# ================================
+# BINARY FILES
+# ================================
+# Images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.webp binary
+
+# Audio
+*.mp3 binary
+*.wav binary
+*.ogg binary
+*.m4a binary
+
+# Video
+*.mp4 binary
+*.avi binary
+*.mov binary
+*.wmv binary
+
+# Fonts
+*.woff binary
+*.woff2 binary
+*.eot binary
+*.ttf binary
+*.otf binary
+
+# Archives
+*.zip binary
+*.tar binary
+*.gz binary
+*.rar binary
+*.7z binary
+
+# Android specific
+*.apk binary
+*.aab binary
+*.dex binary
+*.class binary
+*.jar binary
+*.so binary
+
+# Database files
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+
+# Office documents
+*.pdf binary
+*.doc binary
+*.docx binary
+*.xls binary
+*.xlsx binary
+*.ppt binary
+*.pptx binary
+
+# ================================
+# LANGUAGE SPECIFIC
+# ================================
+# JavaScript/Node.js
+package-lock.json -diff
+yarn.lock -diff
+
+# Android
+*.gradle linguist-language=Gradle
+*.pro linguist-language=Prolog
+
+# ================================
+# EXPORT IGNORE
+# ================================
+# Files to exclude from export/archive
+.gitattributes export-ignore
+.gitignore export-ignore
+.gitmodules export-ignore
+.github/ export-ignore
+docs/ export-ignore
+test/ export-ignore
+tests/ export-ignore
+spec/ export-ignore
+*.test.js export-ignore
+*.spec.js export-ignore
+
+# ================================
+# DIFF CUSTOMIZATION
+# ================================
+# Don't show diffs for generated files
+package-lock.json -diff
+yarn.lock -diff
+*.min.js -diff
+*.min.css -diff
+build/ -diff
+dist/ -diff
+
+# ================================
+# MERGE STRATEGIES
+# ================================
+# Use custom merge driver for specific files
+# Example: .gitignore merge=ours
+# package.json merge=npm-merge-driver
