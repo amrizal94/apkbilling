@@ -1,0 +1,79 @@
+<resources>
+    <string name="app_name">APK Billing TV</string>
+    
+    <!-- Device Admin -->
+    <string name="device_admin_label">APK Billing Device Admin</string>
+    <string name="device_admin_description">Allows APK Billing to manage device power and system settings for billing purposes.</string>
+    
+    <!-- Main Activity -->
+    <string name="status_standby">STANDBY</string>
+    <string name="status_active">BILLING ACTIVE</string>
+    <string name="status_paused">PAUSED</string>
+    <string name="status_error">ERROR</string>
+    
+    <string name="btn_start_billing">START BILLING</string>
+    <string name="btn_stop_billing">STOP BILLING</string>
+    <string name="btn_pause_billing">PAUSE</string>
+    <string name="btn_resume_billing">RESUME</string>
+    <string name="btn_settings">SETTINGS</string>
+    
+    <!-- Overlay -->
+    <string name="overlay_title">APK Billing System</string>
+    <string name="overlay_time_remaining">Time Remaining</string>
+    <string name="overlay_session_info">Session Info</string>
+    <string name="overlay_customer">Customer</string>
+    <string name="overlay_package">Package</string>
+    <string name="overlay_amount">Amount</string>
+    
+    <!-- Notifications -->
+    <string name="notification_billing_active">Billing session is active</string>
+    <string name="notification_time_warning">Session will end in %d minutes</string>
+    <string name="notification_session_ended">Billing session has ended</string>
+    
+    <!-- Settings -->
+    <string name="settings_server_url">Server URL</string>
+    <string name="settings_device_name">Device Name</string>
+    <string name="settings_auto_start">Auto Start on Boot</string>
+    <string name="settings_overlay_position">Overlay Position</string>
+    <string name="settings_warning_time">Warning Time (minutes)</string>
+    
+    <!-- API Messages -->
+    <string name="api_connecting">Connecting to server...</string>
+    <string name="api_connected">Connected to server</string>
+    <string name="api_connection_failed">Failed to connect to server</string>
+    <string name="api_session_started">Billing session started</string>
+    <string name="api_session_stopped">Billing session stopped</string>
+    <string name="api_session_error">Session error occurred</string>
+    
+    <!-- Error Messages -->
+    <string name="error_network">Network connection error</string>
+    <string name="error_permission">Required permissions not granted</string>
+    <string name="error_device_admin">Device admin permission required</string>
+    <string name="error_overlay_permission">Overlay permission required</string>
+    <string name="error_server_unreachable">Server is unreachable</string>
+    
+    <!-- Permissions -->
+    <string name="permission_overlay_title">Overlay Permission Required</string>
+    <string name="permission_overlay_message">This app needs overlay permission to display billing information on screen.</string>
+    <string name="permission_device_admin_title">Device Admin Permission Required</string>
+    <string name="permission_device_admin_message">This app needs device admin permission to manage TV power for billing purposes.</string>
+    
+    <!-- Dialog Messages -->
+    <string name="dialog_confirm_stop">Are you sure you want to stop the billing session?</string>
+    <string name="dialog_session_ending">Session will end in %d minutes. Extend session?</string>
+    <string name="dialog_yes">Yes</string>
+    <string name="dialog_no">No</string>
+    <string name="dialog_ok">OK</string>
+    <string name="dialog_cancel">Cancel</string>
+    <string name="dialog_extend">Extend</string>
+    
+    <!-- Time Formats -->
+    <string name="time_format_hours" formatted="false">%02d:%02d:%02d</string>
+    <string name="time_format_minutes" formatted="false">%02d:%02d</string>
+    <string name="time_remaining_format">%s remaining</string>
+    <string name="time_expired">Time Expired</string>
+    
+    <!-- Currency -->
+    <string name="currency_format">Rp %,.0f</string>
+    <string name="free_session">Free Session</string>
+</resources>

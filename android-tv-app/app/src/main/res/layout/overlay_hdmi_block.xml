@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:gravity="center">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="@drawable/overlay_background"
+        android:padding="40dp">
+
+        <ImageView
+            android:layout_width="100dp"
+            android:layout_height="100dp"
+            android:src="@drawable/ic_tv_billing"
+            android:layout_marginBottom="20dp"
+            android:tint="#FF6B6B" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🚫 HDMI ACCESS BLOCKED"
+            android:textSize="36sp"
+            android:textStyle="bold"
+            android:textColor="#FF6B6B"
+            android:layout_marginBottom="20dp"
+            android:gravity="center" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="HDMI input is not allowed without an active billing session"
+            android:textSize="20sp"
+            android:textColor="#FFFFFF"
+            android:layout_marginBottom="10dp"
+            android:gravity="center" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Please start a billing session first to use PlayStation, PC, or other HDMI devices"
+            android:textSize="16sp"
+            android:textColor="#CCCCCC"
+            android:layout_marginBottom="30dp"
+            android:gravity="center"
+            android:lineSpacingMultiplier="1.2" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⏰ Start billing session to unlock HDMI access"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="#4CAF50"
+            android:gravity="center"
+            android:layout_marginBottom="20dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Return to billing app to continue"
+            android:textSize="14sp"
+            android:textColor="#999999"
+            android:gravity="center" />
+
+    </LinearLayout>
+
+    <!-- Fullscreen blocker to prevent any HDMI content showing through -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="#000000"
+        android:alpha="0.95" />
+
+</RelativeLayout>

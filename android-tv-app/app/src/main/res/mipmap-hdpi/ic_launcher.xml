@@ -1,0 +1,33 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="72dp"
+    android:height="72dp"
+    android:viewportWidth="72"
+    android:viewportHeight="72">
+    
+    <!-- Background -->
+    <path
+        android:pathData="M0,0L72,0L72,72L0,72Z"
+        android:fillColor="@color/ic_launcher_background"/>
+    
+    <!-- TV Icon -->
+    <group android:scaleX="0.7"
+        android:scaleY="0.7"
+        android:translateX="10.8"
+        android:translateY="10.8">
+        
+        <path
+            android:pathData="M12,12L60,12A6,6 0,0 1,66 18L66,42A6,6 0,0 1,60 48L12,48A6,6 0,0 1,6 42L6,18A6,6 0,0 1,12 12z"
+            android:fillColor="@color/primary_blue"/>
+            
+        <path
+            android:pathData="M15,18L57,18A3,3 0,0 1,60 21L60,39A3,3 0,0 1,57 42L15,42A3,3 0,0 1,12 39L12,21A3,3 0,0 1,15 18z"
+            android:fillColor="@color/card_background"/>
+            
+        <circle
+            android:centerX="36"
+            android:centerY="30"
+            android:radius="9dp"
+            android:fillColor="@color/accent_orange"/>
+            
+    </group>
+</vector>

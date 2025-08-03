@@ -56,7 +56,52 @@ export function SocketProvider({ children }) {
       });
 
       newSocket.on('session_warning', (data) => {
-        toast.warning(`⚠️ Session Warning: ${data.customer_name} on ${data.device_name} - ${data.remaining_minutes} minutes left`);
+        toast(`⚠️ Session Warning: ${data.customer_name} on ${data.device_name} - ${data.remaining_minutes} minutes left`, {
+          icon: '⚠️',
+          style: {
+            background: '#FF9800',
+            color: '#FFF',
+          },
+          duration: 5000,
+        });
+      });
+
+      newSocket.on('session_started', (data) => {
+        console.log('🎯 Session started:', data);
+        toast.success(`✅ Session started on ${data.customer_name}`);
+        // Trigger TV status refresh
+        window.dispatchEvent(new CustomEvent('refreshTVStatus'));
+      });
+
+      newSocket.on('session_ended', (data) => {
+        console.log('🛑 Session ended:', data);
+        toast(`ℹ️ Session ended on ${data.customer_name}`, {
+          icon: 'ℹ️',
+          style: {
+            background: '#2196F3',
+            color: '#FFF',
+          },
+          duration: 4000,
+        });
+        // Trigger TV status refresh
+        window.dispatchEvent(new CustomEvent('refreshTVStatus'));
+      });
+
+      newSocket.on('device_status_changed', (data) => {
+        console.log('📱 Device status changed:', data);
+        if (data.new_status === 'offline') {
+          toast(`📶 ${data.device_name} went offline`, { 
+            icon: '⚠️',
+            style: {
+              background: '#FFA726',
+              color: '#FFF',
+            },
+          });
+        } else if (data.new_status === 'online') {
+          toast.success(`📶 ${data.device_name} is back online`);
+        }
+        // Trigger TV status refresh
+        window.dispatchEvent(new CustomEvent('refreshTVStatus'));
       });
 
       // POS events

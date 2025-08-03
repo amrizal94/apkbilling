@@ -1,0 +1,42 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    
+  <group android:scaleX="0.58"
+      android:scaleY="0.58"
+      android:translateX="22.68"
+      android:translateY="22.68">
+      
+    <!-- TV Screen -->
+    <path
+        android:pathData="M15,6L93,6A9,9 0,0 1,102 15L102,75A9,9 0,0 1,93 84L15,84A9,9 0,0 1,6 75L6,15A9,9 0,0 1,15 6z"
+        android:fillColor="@color/primary_blue"/>
+        
+    <!-- Screen Content -->
+    <path
+        android:pathData="M18,15L90,15A3,3 0,0 1,93 18L93,66A3,3 0,0 1,90 69L18,69A3,3 0,0 1,15 66L15,18A3,3 0,0 1,18 15z"
+        android:fillColor="@color/card_background"/>
+        
+    <!-- TV Stand -->
+    <path
+        android:pathData="M42,84L66,84L63,96L45,96z"
+        android:fillColor="@color/primary_blue"/>
+        
+    <!-- Billing Symbol -->
+    <circle
+        android:centerX="54"
+        android:centerY="42"
+        android:radius="12dp"
+        android:fillColor="@color/accent_orange"/>
+        
+    <!-- Dollar Sign -->
+    <path
+        android:pathData="M54,33L54,51M48,36L57,36A3,3 0,0 1,57 42L51,42A3,3 0,0 1,51 48L60,48"
+        android:strokeColor="@color/white"
+        android:strokeWidth="2"
+        android:strokeLineCap="round"/>
+        
+  </group>
+</vector>

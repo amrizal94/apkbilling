@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Primary Colors -->
+    <color name="purple_200">#FFBB86FC</color>
+    <color name="purple_500">#FF6200EE</color>
+    <color name="purple_700">#FF3700B3</color>
+    <color name="teal_200">#FF03DAC5</color>
+    <color name="teal_700">#FF018786</color>
+    
+    <!-- Basic Colors -->
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+    
+    <!-- TV Theme Colors -->
+    <color name="tv_background">#FF0D1117</color>
+    <color name="card_background">#FF1C2128</color>
+    <color name="primary_blue">#FF1976D2</color>
+    <color name="primary_blue_dark">#FF0D47A1</color>
+    <color name="accent_orange">#FFFF5722</color>
+    
+    <!-- Status Colors -->
+    <color name="status_active">#FF4CAF50</color>
+    <color name="status_standby">#FFFF9800</color>
+    <color name="status_error">#FFF44336</color>
+    <color name="status_warning">#FFFFC107</color>
+    
+    <!-- Text Colors -->
+    <color name="text_primary">#FFFFFFFF</color>
+    <color name="text_secondary">#FFB0BEC5</color>
+    <color name="text_disabled">#FF78909C</color>
+    
+    <!-- Button Colors -->
+    <color name="btn_primary">#FF1976D2</color>
+    <color name="btn_primary_pressed">#FF0D47A1</color>
+    <color name="btn_secondary">#FFFF5722</color>
+    <color name="btn_secondary_pressed">#FFD84315</color>
+    <color name="btn_outline">#FF455A64</color>
+    <color name="btn_outline_pressed">#FF37474F</color>
+    
+    <!-- Overlay Colors -->
+    <color name="overlay_background">#CC000000</color>
+    <color name="overlay_card">#FF1C2128</color>
+    <color name="timer_warning">#FFFFC107</color>
+    <color name="timer_critical">#FFF44336</color>
+    
+    <!-- Launcher Icon Background -->
+    <color name="ic_launcher_background">#FF0D1117</color>
+</resources>

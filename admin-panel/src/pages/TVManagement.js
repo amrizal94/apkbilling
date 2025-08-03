@@ -40,7 +40,6 @@ export default function TVManagement() {
   const [loading, setLoading] = useState(true);
   const [sessionDialog, setSessionDialog] = useState({ open: false, device: null });
   const [sessionForm, setSessionForm] = useState({
-    customer_name: '',
     package_id: '',
   });
 
@@ -48,7 +47,19 @@ export default function TVManagement() {
     fetchDevices();
     fetchPackages();
     const interval = setInterval(fetchDevices, 10000); // Refresh every 10 seconds
-    return () => clearInterval(interval);
+    
+    // Listen for real-time refresh events
+    const handleRefresh = () => {
+      console.log('🔄 Refreshing TV status due to real-time event');
+      fetchDevices();
+    };
+    
+    window.addEventListener('refreshTVStatus', handleRefresh);
+    
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('refreshTVStatus', handleRefresh);
+    };
   }, []);
 
   const fetchDevices = async () => {
@@ -78,7 +89,7 @@ export default function TVManagement() {
 
   const handleStartSession = (device) => {
     setSessionDialog({ open: true, device });
-    setSessionForm({ customer_name: '', package_id: '' });
+    setSessionForm({ package_id: '' });
   };
 
   const handleStopSession = async (sessionId, deviceName) => {
@@ -98,7 +109,7 @@ export default function TVManagement() {
     try {
       const response = await axios.post('/tv/start-session', {
         device_id: sessionDialog.device.id,
-        customer_name: sessionForm.customer_name,
+        customer_name: sessionDialog.device.device_name, // Auto-use device name
         package_id: sessionForm.package_id,
       });
 
@@ -116,7 +127,7 @@ export default function TVManagement() {
 
   const getDeviceStatus = (device) => {
     if (device.session_id) {
-      const remainingMinutes = device.remaining_minutes || 0;
+      const remainingMinutes = device.remaining_minutes != null ? device.remaining_minutes : 0;
       if (remainingMinutes <= 0) {
         return { status: 'expired', color: 'error', label: 'Expired' };
       } else if (remainingMinutes <= 5) {
@@ -132,8 +143,12 @@ export default function TVManagement() {
   };
 
   const formatTime = (minutes) => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
+    if (minutes == null || isNaN(minutes) || minutes < 0) {
+      return '0m';
+    }
+    const totalMinutes = Math.floor(minutes);
+    const hours = Math.floor(totalMinutes / 60);
+    const mins = totalMinutes % 60;
     return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
   };
 
@@ -267,7 +282,7 @@ export default function TVManagement() {
                       <Box display="flex" alignItems="center" mb={1}>
                         <PersonIcon sx={{ mr: 1, fontSize: 16 }} />
                         <Typography variant="body2">
-                          {device.customer_name}
+                          Session Active
                         </Typography>
                       </Box>
                       <Box display="flex" alignItems="center" mb={1}>
@@ -352,16 +367,6 @@ export default function TVManagement() {
         </DialogTitle>
         <DialogContent>
           <TextField
-            autoFocus
-            margin="dense"
-            label="Customer Name"
-            fullWidth
-            variant="outlined"
-            value={sessionForm.customer_name}
-            onChange={(e) => setSessionForm({ ...sessionForm, customer_name: e.target.value })}
-            sx={{ mb: 2 }}
-          />
-          <TextField
             select
             margin="dense"
             label="Billing Package"
@@ -384,7 +389,7 @@ export default function TVManagement() {
           <Button 
             onClick={handleSessionSubmit}
             variant="contained"
-            disabled={!sessionForm.customer_name || !sessionForm.package_id}
+            disabled={!sessionForm.package_id}
           >
             Start Session
           </Button>

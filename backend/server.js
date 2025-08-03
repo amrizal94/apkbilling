@@ -2,7 +2,12 @@ const express = require('express');
 const cors = require('cors');
 const http = require('http');
 const socketIo = require('socket.io');
+const CleanupScheduler = require('./utils/cleanup-scheduler');
 require('dotenv').config();
+
+// Set timezone to Indonesia Jakarta
+process.env.TZ = process.env.TIMEZONE || 'Asia/Jakarta';
+console.log(`🌍 Timezone set to: ${process.env.TZ}`);
 
 // Initialize database and run migrations
 const DatabaseMigrator = require('./migrations/migrator');
@@ -27,9 +32,24 @@ app.use('/uploads', express.static('uploads'));
 // Database connection
 const db = require('./config/database');
 
+// Add health check endpoint
+app.get('/api/health', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Server is healthy',
+        timestamp: new Date().toISOString(),
+        uptime: process.uptime()
+    });
+});
+
 // Routes
 app.use('/api/auth', require('./routes/auth'));
-app.use('/api/tv', require('./routes/tv'));
+
+// TV routes with socket injection
+const tvRoutes = require('./routes/tv');
+tvRoutes.setSocketIO(io);
+app.use('/api/tv', tvRoutes);
+
 app.use('/api/pos', require('./routes/pos'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
@@ -37,6 +57,19 @@ app.use('/api/settings', require('./routes/settings'));
 // WebSocket handling
 const socketHandler = require('./sockets/socketHandler');
 socketHandler(io);
+
+// Start heartbeat monitor
+const HeartbeatMonitor = require('./services/heartbeatMonitor');
+const heartbeatMonitor = new HeartbeatMonitor(io);
+heartbeatMonitor.start();
+
+// Start cleanup scheduler
+const cleanupScheduler = new CleanupScheduler();
+cleanupScheduler.start();
+
+// Start device discovery cleanup service
+const discoveryCleanup = tvRoutes.initCleanupService(io);
+discoveryCleanup.start(5); // Run every 5 minutes
 
 // Global error handler
 app.use((err, req, res, next) => {
