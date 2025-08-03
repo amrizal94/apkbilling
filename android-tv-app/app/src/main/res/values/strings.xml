@@ -76,4 +76,5 @@
     <!-- Currency -->
     <string name="currency_format">Rp %,.0f</string>
     <string name="free_session">Free Session</string>
+    
 </resources>

@@ -1,7 +1,11 @@
 package com.apkbilling.tv;
 
 import android.app.Activity;
+import android.app.ActivityManager;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -12,10 +16,12 @@ import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.apkbilling.tv.services.BillingOverlayService;
+import java.util.List;
+
 import com.apkbilling.tv.services.BillingBackgroundService;
 import com.apkbilling.tv.services.NetworkMonitorService;
 import com.apkbilling.tv.network.ApiClient;
@@ -32,9 +38,14 @@ public class MainActivity extends AppCompatActivity {
     private TextView tvServerStatus;
     private TextView tvTimer;
     private TextView tvSessionInfo;
-    private Button btnStartBilling;
-    private Button btnStopBilling;
-    private Button btnSettings;
+    
+    // Configuration fields
+    private EditText etDeviceName;
+    private EditText etDeviceLocation;
+    private EditText etServerUrl;
+    private Button btnTestConnection;
+    private Button btnSaveConfig;
+    private TextView tvConnectionStatus;
     
     private ApiClient apiClient;
     private SettingsManager settingsManager;
@@ -62,6 +73,7 @@ public class MainActivity extends AppCompatActivity {
         Log.d(TAG, "Kiosk mode enabled: " + kioskModeEnabled);
         
         startServices();
+        loadSettings();
         updateStatus();
         checkForActiveSession();
         
@@ -79,24 +91,21 @@ public class MainActivity extends AppCompatActivity {
     private void handleIntent(Intent intent) {
         if (intent != null) {
             if (intent.getBooleanExtra("session_terminated", false)) {
-                Log.d(TAG, "Session was terminated by operator - showing termination message");
-                showToast("Session terminated by operator");
+                Log.d(TAG, "Session was terminated by operator - customer trapped in billing app");
+                showToast("Session terminated - Wait for operator to start new session");
                 
-                // Ensure we're in the foreground and focused
-                if (!isTaskRoot()) {
-                    Intent newIntent = new Intent(this, MainActivity.class);
-                    newIntent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                    startActivity(newIntent);
+                // Clear any pending auto-exit operations
+                if (timerHandler != null) {
+                    timerHandler.removeCallbacksAndMessages(null);
                 }
-            } else if (intent.getBooleanExtra("kiosk_return", false)) {
-                Log.d(TAG, "Returned to billing app via kiosk mode");
-                showToast("Cannot exit billing app without active session");
+                
             } else if (intent.getBooleanExtra("kiosk_forced_return", false)) {
                 Log.d(TAG, "Forced return to billing app by kiosk service");
-                showToast("Unauthorized app usage blocked - Please start billing session");
-            } else if (intent.getBooleanExtra("hdmi_blocked", false)) {
-                Log.d(TAG, "HDMI access blocked - no active session");
-                showToast("HDMI access blocked - Please start billing session first");
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastKioskToastTime > 3000) { // 3 second cooldown
+                    showToast("Please start billing session first");
+                    lastKioskToastTime = currentTime;
+                }
             }
         }
     }
@@ -134,14 +143,20 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void initViews() {
+        // Status views
         tvStatus = findViewById(R.id.tv_status);
         tvDeviceId = findViewById(R.id.tv_device_id);
         tvServerStatus = findViewById(R.id.tv_server_status);
         tvTimer = findViewById(R.id.tv_timer);
         tvSessionInfo = findViewById(R.id.tv_session_info);
-        btnStartBilling = findViewById(R.id.btn_start_billing);
-        btnStopBilling = findViewById(R.id.btn_stop_billing);
-        btnSettings = findViewById(R.id.btn_settings);
+        
+        // Configuration views
+        etDeviceName = findViewById(R.id.et_device_name);
+        etDeviceLocation = findViewById(R.id.et_device_location);
+        etServerUrl = findViewById(R.id.et_server_url);
+        btnTestConnection = findViewById(R.id.btn_test_connection);
+        btnSaveConfig = findViewById(R.id.btn_save_config);
+        tvConnectionStatus = findViewById(R.id.tv_connection_status);
     }
     
     private void initApiClient() {
@@ -247,25 +262,23 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void setupClickListeners() {
-        btnStartBilling.setOnClickListener(v -> startBillingSession());
-        btnStopBilling.setOnClickListener(v -> stopBillingSession());
-        btnSettings.setOnClickListener(v -> openSettings());
-        
-        // Long press Settings button to temporarily disable kiosk mode (for operator setup)
-        btnSettings.setOnLongClickListener(v -> {
-            if (kioskModeEnabled && !isBillingActive) {
-                showKioskBypassDialog();
-                return true;
-            }
-            return false;
-        });
+        btnTestConnection.setOnClickListener(v -> testConnection());
+        btnSaveConfig.setOnClickListener(v -> saveConfiguration());
     }
     
     private void startServices() {
         // Start background billing service
         Intent backgroundIntent = new Intent(this, BillingBackgroundService.class);
         backgroundIntent.setAction("CHECK_SESSION");
-        startForegroundService(backgroundIntent);
+        
+        try {
+            startForegroundService(backgroundIntent);
+            Log.d(TAG, "BillingBackgroundService started successfully");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start foreground service, trying regular service", e);
+            // Fallback to regular service if foreground fails
+            startService(backgroundIntent);
+        }
         
         // Start network monitor
         Intent networkIntent = new Intent(this, NetworkMonitorService.class);
@@ -274,94 +287,173 @@ public class MainActivity extends AppCompatActivity {
         // Start kiosk mode service for security
         Intent kioskIntent = new Intent(this, com.apkbilling.tv.services.KioskModeService.class);
         kioskIntent.setAction("ENABLE_KIOSK");
-        startService(kioskIntent);
+        try {
+            startForegroundService(kioskIntent);
+            Log.d(TAG, "KioskModeService started as foreground service");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start KioskModeService as foreground, trying regular service", e);
+            startService(kioskIntent);
+        }
         
-        // Start HDMI block service for additional security
-        Intent hdmiIntent = new Intent(this, com.apkbilling.tv.services.HDMIBlockService.class);
-        hdmiIntent.setAction("ENABLE_HDMI_BLOCK");
-        startService(hdmiIntent);
-        
-        Log.d(TAG, "All services started including kiosk mode and HDMI blocking");
+        Log.d(TAG, "All services started including kiosk mode");
     }
     
-    private void startBillingSession() {
-        if (!isBillingActive) {
-            // TODO: Implement billing session start
-            isBillingActive = true;
-            updateUI();
-            showToast("Billing session started");
+    
+    private void loadSettings() {
+        etServerUrl.setText(settingsManager.getServerUrl());
+        etDeviceName.setText(settingsManager.getDeviceName());
+        etDeviceLocation.setText(settingsManager.getDeviceLocation());
+        updateConnectionStatus();
+    }
+    
+    private void testConnection() {
+        String serverUrl = etServerUrl.getText().toString().trim();
+        
+        Log.d(TAG, "Starting connection test to: " + serverUrl);
+        
+        if (serverUrl.isEmpty()) {
+            showToast("Please enter server URL");
+            return;
+        }
+        
+        if (!isValidUrl(serverUrl)) {
+            showToast("Invalid URL format. Use: http://IP:PORT");
+            return;
+        }
+        
+        btnTestConnection.setEnabled(false);
+        btnTestConnection.setText("Testing...");
+        tvConnectionStatus.setText("Testing connection...");
+        tvConnectionStatus.setTextColor(getColor(R.color.text_secondary));
+        
+        // Set temporary URL for testing
+        apiClient.setBaseUrl(serverUrl + "/api");
+        
+        apiClient.checkConnection(new ApiClient.ConnectionCallback() {
+            @Override
+            public void onSuccess() {
+                Log.d(TAG, "Connection test successful");
+                runOnUiThread(() -> {
+                    tvConnectionStatus.setText("✅ Connected successfully!");
+                    tvConnectionStatus.setTextColor(getColor(R.color.status_active));
+                    showToast("Connection successful!");
+                    resetTestButton();
+                });
+            }
             
-            // Start overlay
-            Intent intent = new Intent(this, BillingOverlayService.class);
-            intent.setAction("START_OVERLAY");
-            startService(intent);
+            @Override
+            public void onError(String error) {
+                Log.e(TAG, "Connection test failed: " + error);
+                runOnUiThread(() -> {
+                    tvConnectionStatus.setText("❌ Connection failed: " + error);
+                    tvConnectionStatus.setTextColor(getColor(R.color.status_error));
+                    showToast("Connection failed: " + error);
+                    resetTestButton();
+                });
+            }
+        });
+    }
+    
+    private void saveConfiguration() {
+        String serverUrl = etServerUrl.getText().toString().trim();
+        String deviceName = etDeviceName.getText().toString().trim();
+        String deviceLocation = etDeviceLocation.getText().toString().trim();
+        
+        // Validation
+        if (serverUrl.isEmpty()) {
+            showToast("Server URL is required");
+            etServerUrl.requestFocus();
+            return;
+        }
+        
+        if (!isValidUrl(serverUrl)) {
+            showToast("Invalid URL format. Use: http://IP:PORT");
+            etServerUrl.requestFocus();
+            return;
+        }
+        
+        if (deviceName.isEmpty()) {
+            showToast("Device name is required");
+            etDeviceName.requestFocus();
+            return;
+        }
+        
+        // Save settings
+        settingsManager.setServerUrl(serverUrl);
+        settingsManager.setDeviceName(deviceName);
+        settingsManager.setDeviceLocation(deviceLocation);
+        
+        showToast("Configuration saved successfully!");
+        
+        // Re-register device with new info
+        reRegisterDevice(serverUrl, deviceName, deviceLocation);
+        
+        // Update connection status and device info
+        updateConnectionStatus();
+        updateStatus();
+    }
+    
+    private void resetTestButton() {
+        btnTestConnection.setEnabled(true);
+        btnTestConnection.setText("TEST");
+    }
+    
+    private void reRegisterDevice(String serverUrl, String deviceName, String deviceLocation) {
+        try {
+            String deviceId = android.provider.Settings.Secure.getString(
+                getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+            
+            Log.d(TAG, "Re-registering device with new info: " + deviceName);
+            
+            // Update API client URL
+            apiClient.setBaseUrl(serverUrl + "/api");
+            
+            apiClient.discoverDevice(deviceId, deviceName, deviceLocation, new ApiClient.ApiCallback<ApiClient.DeviceResponse>() {
+                @Override
+                public void onSuccess(ApiClient.DeviceResponse data) {
+                    Log.d(TAG, "Device re-registered successfully: " + data.device_name);
+                    runOnUiThread(() -> {
+                        showToast("Device info updated on server!");
+                    });
+                }
+                
+                @Override
+                public void onError(String error) {
+                    Log.e(TAG, "Device re-registration failed: " + error);
+                    runOnUiThread(() -> {
+                        showToast("Warning: Settings saved but server update failed");
+                    });
+                }
+            });
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error during device re-registration", e);
         }
     }
     
-    private void stopBillingSession() {
-        if (isBillingActive) {
-            // TODO: Implement billing session stop
-            isBillingActive = false;
-            updateUI();
-            showToast("Billing session stopped");
-            
-            // Stop overlay
-            Intent intent = new Intent(this, BillingOverlayService.class);
-            intent.setAction("STOP_OVERLAY");
-            startService(intent);
+    private void updateConnectionStatus() {
+        String currentUrl = settingsManager.getServerUrl();
+        if (currentUrl.equals(SettingsManager.DEFAULT_SERVER_URL)) {
+            tvConnectionStatus.setText("⚠️ Using default settings");
+            tvConnectionStatus.setTextColor(getColor(R.color.status_warning));
+        } else {
+            tvConnectionStatus.setText("Using custom server: " + currentUrl);
+            tvConnectionStatus.setTextColor(getColor(R.color.text_secondary));
         }
     }
     
-    private void openSettings() {
-        Intent intent = new Intent(this, SettingsActivity.class);
-        startActivity(intent);
+    private boolean isValidUrl(String url) {
+        if (url.isEmpty()) {
+            return false;
+        }
+        
+        // Simple URL validation
+        return url.startsWith("http://") && 
+               url.contains(":") && 
+               url.length() > 10 &&
+               !url.endsWith("/");
     }
     
-    private void showKioskBypassDialog() {
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("Operator Access")
-            .setMessage("Temporarily disable security mode for setup?\n\nThis will allow access to Settings and system configuration for 5 minutes.")
-            .setPositiveButton("Yes, Allow Setup", (dialog, which) -> {
-                enableTemporaryBypass();
-            })
-            .setNegativeButton("Cancel", null)
-            .show();
-    }
-    
-    private void enableTemporaryBypass() {
-        kioskModeTemporarilyDisabled = true;
-        showToast("🔓 Setup mode enabled for 5 minutes");
-        Log.d(TAG, "Kiosk mode temporarily disabled for operator setup");
-        
-        // Notify services about temporary bypass
-        Intent kioskIntent = new Intent(this, com.apkbilling.tv.services.KioskModeService.class);
-        kioskIntent.setAction("TEMPORARY_DISABLE");
-        startService(kioskIntent);
-        
-        Intent hdmiIntent = new Intent(this, com.apkbilling.tv.services.HDMIBlockService.class);
-        hdmiIntent.setAction("TEMPORARY_DISABLE");
-        startService(hdmiIntent);
-        
-        // Auto re-enable after 5 minutes
-        new Handler().postDelayed(() -> {
-            disableTemporaryBypass();
-        }, 5 * 60 * 1000); // 5 minutes
-    }
-    
-    private void disableTemporaryBypass() {
-        kioskModeTemporarilyDisabled = false;
-        showToast("🔒 Security mode re-enabled");
-        Log.d(TAG, "Kiosk mode re-enabled after temporary bypass");
-        
-        // Notify services to re-enable security
-        Intent kioskIntent = new Intent(this, com.apkbilling.tv.services.KioskModeService.class);
-        kioskIntent.setAction("ENABLE_KIOSK");
-        startService(kioskIntent);
-        
-        Intent hdmiIntent = new Intent(this, com.apkbilling.tv.services.HDMIBlockService.class);
-        hdmiIntent.setAction("ENABLE_HDMI_BLOCK");
-        startService(hdmiIntent);
-    }
     
     private void updateStatus() {
         // Update device info from settings
@@ -397,23 +489,42 @@ public class MainActivity extends AppCompatActivity {
         if (isBillingActive) {
             tvStatus.setText("Status: BILLING ACTIVE");
             tvStatus.setTextColor(getColor(R.color.status_active));
-            btnStartBilling.setEnabled(false);
-            btnStopBilling.setEnabled(true);
         } else {
             tvStatus.setText("Status: STANDBY");
             tvStatus.setTextColor(getColor(R.color.status_standby));
-            btnStartBilling.setEnabled(true);
-            btnStopBilling.setEnabled(false);
         }
     }
     
     private void showToast(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        long currentTime = System.currentTimeMillis();
+        
+        // Prevent toast spam - minimum 5 seconds between any toasts
+        if (currentTime - lastGeneralToastTime < 5000) {
+            Log.d(TAG, "Toast throttled: " + message);
+            return;
+        }
+        
+        // Prevent duplicate messages
+        if (message.equals(lastToastMessage) && currentTime - lastGeneralToastTime < 10000) {
+            Log.d(TAG, "Duplicate toast blocked: " + message);
+            return;
+        }
+        
+        try {
+            Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+            lastGeneralToastTime = currentTime;
+            lastToastMessage = message;
+            Log.d(TAG, "Toast shown: " + message);
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to show toast", e);
+        }
     }
     
     private void startSessionTimer(ApiClient.SessionResponse session) {
         currentSession = session;
         isBillingActive = true;
+        
+        // Session is now active - real-time monitoring will detect changes
         
         // Calculate remaining time from backend response
         if (session.remaining_minutes > 0) {
@@ -435,6 +546,10 @@ public class MainActivity extends AppCompatActivity {
         timerHandler.removeCallbacks(timerRunnable);
         timerHandler.post(timerRunnable);
         
+        // Stop return enforcement since session is now active
+        stopReturnEnforcement();
+        Log.d(TAG, "🟢 SESSION STARTED - Return enforcement stopped, customer can access any app including billing app");
+        
         // Notify background service about the session
         Intent backgroundIntent = new Intent(this, BillingBackgroundService.class);
         backgroundIntent.setAction("START_SESSION");
@@ -447,22 +562,45 @@ public class MainActivity extends AppCompatActivity {
         kioskIntent.setAction("SESSION_STARTED");
         startService(kioskIntent);
         
-        // Notify HDMI block service that session started (allow HDMI access)
-        Intent hdmiIntent = new Intent(this, com.apkbilling.tv.services.HDMIBlockService.class);
-        hdmiIntent.setAction("SESSION_STARTED");
-        startService(hdmiIntent);
+        
+        // Session started - auto-exit billing app so customer can use Netflix/PS4
+        Log.d(TAG, "Session started - auto-exiting billing app for customer to use other apps");
+        
+        // Show toast to inform customer
+        showToast("✅ Session started! You can now use Netflix, PS4, etc. Time: " + formatTimeRemaining(remainingSeconds) + ". Return to billing app anytime to check timer.");
+        
+        // Auto-exit billing app after 3 seconds delay
+        Handler exitHandler = new Handler();
+        exitHandler.postDelayed(new Runnable() {
+            @Override
+            public void run() {
+                if (isBillingActive) { // Only exit if session is still active
+                    Log.d(TAG, "🚀 Auto-exiting billing app - customer can now use other apps");
+                    moveTaskToBack(true); // Move billing app to background
+                }
+            }
+        }, 3000); // 3 second delay
         
         Log.d(TAG, "Timer started with " + remainingSeconds + " seconds remaining");
     }
     
     private void stopSessionTimer() {
-        timerHandler.removeCallbacks(timerRunnable);
+        // Clear all timer-related handlers and runnables
+        if (timerHandler != null) {
+            timerHandler.removeCallbacks(timerRunnable);
+            timerHandler.removeCallbacksAndMessages(null); // Clear all pending operations
+        }
+        
         currentSession = null;
         isBillingActive = false;
         remainingSeconds = 0;
         
+        // Session ended - real-time monitoring will detect this change
+        
         updateUI();
         showTimerCard(false);
+        
+        Log.d(TAG, "Session timer stopped and all handlers cleared");
         
         // Notify background service to stop
         Intent backgroundIntent = new Intent(this, BillingBackgroundService.class);
@@ -474,10 +612,6 @@ public class MainActivity extends AppCompatActivity {
         kioskIntent.setAction("SESSION_ENDED");
         startService(kioskIntent);
         
-        // Notify HDMI block service that session ended (block HDMI access)
-        Intent hdmiIntent = new Intent(this, com.apkbilling.tv.services.HDMIBlockService.class);
-        hdmiIntent.setAction("SESSION_ENDED");
-        startService(hdmiIntent);
         
         Log.d(TAG, "Timer stopped");
     }
@@ -520,13 +654,7 @@ public class MainActivity extends AppCompatActivity {
         
         stopSessionTimer();
         
-        // Show overlay with shutdown countdown
-        Intent intent = new Intent(this, BillingOverlayService.class);
-        intent.setAction("SHOW_EXPIRED");
-        if (currentSession != null) {
-            intent.putExtra("customer_name", currentSession.customer_name);
-        }
-        startService(intent);
+        // Session expired - customer will be brought to billing app via kiosk mode
     }
     
     private void checkActiveSession() {
@@ -562,19 +690,63 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        
+        // Mark app as visible
+        isAppCurrentlyVisible = true;
+        Log.d(TAG, "📱 APP RESUMED - marked as visible (session active: " + isBillingActive + ")");
+        
+        // Stop return enforcement since app is now in foreground
+        stopReturnEnforcement();
+        
+        if (isBillingActive) {
+            Log.d(TAG, "✅ BILLING APP ACCESSIBLE - Session active, customer can use billing app anytime");
+        } else {
+            Log.d(TAG, "🔒 KIOSK MODE - No active session, customer trapped in billing app");
+        }
+        
         updateStatus();
+        
+        // Always check for active session - no memory needed
         checkActiveSession();
         
-        // Start periodic session check
+        // Register toast receiver with proper flags for Android 13+
+        IntentFilter toastFilter = new IntentFilter("com.apkbilling.tv.SHOW_TOAST");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(toastReceiver, toastFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(toastReceiver, toastFilter);
+        }
+        
+        // Start real-time session monitoring with shorter interval for better responsiveness
         periodicHandler.removeCallbacks(sessionCheckRunnable);
-        periodicHandler.postDelayed(sessionCheckRunnable, 5000); // Check every 5 seconds
+        periodicHandler.postDelayed(sessionCheckRunnable, 5000); // Check every 5 seconds for real-time feel
     }
     
     @Override
     protected void onPause() {
         super.onPause();
+        
+        // Mark app as not visible
+        isAppCurrentlyVisible = false;
+        Log.d(TAG, "App paused - marked as not visible (session active: " + isBillingActive + ")");
+        
         // Stop periodic session check when app is not visible
         periodicHandler.removeCallbacks(sessionCheckRunnable);
+        
+        // Unregister toast receiver
+        try {
+            unregisterReceiver(toastReceiver);
+        } catch (Exception e) {
+            Log.w(TAG, "Toast receiver not registered or already unregistered");
+        }
+        
+        // Start return enforcement to monitor - only enforce if no active session
+        if (!isBillingActive) {
+            Log.d(TAG, "🚨 No active session - starting aggressive return enforcement");
+            startReturnEnforcement();
+        } else {
+            Log.d(TAG, "Session active - customer can use other apps freely");
+        }
     }
     
     private final Handler periodicHandler = new Handler();
@@ -582,50 +754,112 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void run() {
             checkActiveSession();
-            periodicHandler.postDelayed(this, 10000); // Check every 10 seconds
+            // Real-time monitoring: check every 5 seconds when app is visible
+            periodicHandler.postDelayed(this, 5000);
         }
     };
     
     // Kiosk mode variables
     private boolean kioskModeEnabled; // Will be loaded from settings
-    private boolean kioskModeTemporarilyDisabled = false; // For operator setup access
+    private long lastKioskToastTime = 0; // Prevent toast spam
+    private long lastGeneralToastTime = 0; // Prevent all toast spam
+    private String lastToastMessage = ""; // Track last message to avoid duplicates
+    
+    // Return enforcement handler
+    private Handler returnHandler = new Handler();
+    private Runnable returnRunnable;
+    private boolean isAppCurrentlyVisible = false;
+    
+    // Toast broadcast receiver
+    private BroadcastReceiver toastReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            if ("com.apkbilling.tv.SHOW_TOAST".equals(intent.getAction())) {
+                String message = intent.getStringExtra("message");
+                if (message != null) {
+                    showToast(message);
+                }
+            }
+        }
+    };
     
     @Override
     public void onBackPressed() {
-        if (kioskModeEnabled && !isBillingActive && !kioskModeTemporarilyDisabled) {
-            // Block back button when no session is active and no temporary bypass
-            Log.d(TAG, "Back button blocked - no active session and kiosk mode active");
-            showToast("Please start a billing session first");
-            return;
-        }
-        // Allow back button during active session or when kiosk mode is temporarily disabled
-        Log.d(TAG, "Back button allowed - session active or kiosk temporarily disabled");
+        // Always allow back button within the billing app
+        // Kiosk mode only prevents switching to OTHER apps
+        Log.d(TAG, "Back button allowed - within billing app");
         super.onBackPressed();
     }
     
-    private boolean isComingFromSettings() {
-        // Check if we're in the context of returning from settings
-        return getIntent() != null && getIntent().getBooleanExtra("from_settings", false);
-    }
     
     @Override
     protected void onUserLeaveHint() {
         super.onUserLeaveHint();
-        if (kioskModeEnabled && !isBillingActive && !kioskModeTemporarilyDisabled) {
-            // User tried to leave app (home button, recent apps, etc.)
-            Log.d(TAG, "User tried to leave app without active session - blocking");
-            
-            // Bring app back to front after a short delay
-            new Handler().postDelayed(() -> {
-                Intent intent = new Intent(this, MainActivity.class);
-                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | 
-                              Intent.FLAG_ACTIVITY_CLEAR_TOP |
-                              Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                intent.putExtra("kiosk_return", true);
-                startActivity(intent);
-            }, 500);
-        } else if (kioskModeTemporarilyDisabled) {
-            Log.d(TAG, "User left app during setup mode - allowing");
+        
+        // Let KioskModeService handle user leaving detection and enforcement
+        // This prevents double enforcement and conflicting behavior
+        Log.d(TAG, "User leaving hint detected - KioskModeService will handle enforcement");
+    }
+    
+    private void startReturnEnforcement() {
+        if (returnRunnable != null) {
+            returnHandler.removeCallbacks(returnRunnable);
+        }
+        
+        returnRunnable = new Runnable() {
+            @Override
+            public void run() {
+                // Simple logic: if no session and app not visible, force return
+                if (!isBillingActive && !isAppCurrentlyVisible) {
+                    Log.d(TAG, "🔄 ENFORCING: No session + App not visible - forcing return to billing");
+                    
+                    // Bring app to front immediately
+                    Intent returnIntent = new Intent(MainActivity.this, MainActivity.class);
+                    returnIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | 
+                                         Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                                         Intent.FLAG_ACTIVITY_SINGLE_TOP |
+                                         Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT);
+                    returnIntent.putExtra("kiosk_forced_return", true);
+                    startActivity(returnIntent);
+                    
+                    // Real-time enforcement: Continue every 500ms for instant response  
+                    returnHandler.postDelayed(this, 500);
+                } else if (isBillingActive) {
+                    Log.d(TAG, "✅ Session active - stopping enforcement, customer free to use any app");
+                    // Stop enforcement - session is active
+                } else if (isAppCurrentlyVisible) {
+                    Log.d(TAG, "✅ App visible - customer using billing app, continue monitoring");
+                    // App is visible, continue monitoring in case they switch
+                    returnHandler.postDelayed(this, 2000);
+                } else {
+                    Log.d(TAG, "🔄 Continue monitoring...");
+                    returnHandler.postDelayed(this, 2000);
+                }
+            }
+        };
+        
+        // Start checking immediately for real-time response
+        returnHandler.postDelayed(returnRunnable, 500);
+        Log.d(TAG, "🚨 Real-time return enforcement started - checking every 500ms");
+    }
+    
+    private void stopReturnEnforcement() {
+        if (returnRunnable != null && returnHandler != null) {
+            returnHandler.removeCallbacks(returnRunnable);
+            returnRunnable = null;
+            Log.d(TAG, "⏹️ Return enforcement stopped");
         }
     }
+    
+    private String formatTimeRemaining(int totalSeconds) {
+        int hours = totalSeconds / 3600;
+        int minutes = (totalSeconds % 3600) / 60;
+        
+        if (hours > 0) {
+            return String.format("%dh %dm", hours, minutes);
+        } else {
+            return String.format("%d minutes", minutes);
+        }
+    }
+    
 }

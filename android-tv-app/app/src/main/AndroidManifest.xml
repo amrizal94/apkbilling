@@ -41,11 +41,8 @@
     <uses-permission android:name="android.permission.REAL_GET_TASKS" />
     <uses-permission android:name="android.permission.GET_DETAILED_TASKS" />
     <uses-permission android:name="android.permission.REORDER_TASKS" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     
-    <!-- HDMI Monitoring Permissions -->
-    <uses-permission android:name="android.permission.HDMI_CEC" />
-    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
 
     <application
         android:allowBackup="true"
@@ -82,11 +79,6 @@
             android:theme="@style/Theme.APKBilling.NoActionBar"
             android:parentActivityName=".MainActivity" />
 
-        <!-- Billing Overlay Service -->
-        <service
-            android:name=".services.BillingOverlayService"
-            android:enabled="true"
-            android:exported="false" />
             
         <!-- Billing Background Service -->
         <service
@@ -136,19 +128,14 @@
         <service
             android:name=".services.KioskModeService"
             android:enabled="true"
-            android:exported="false" />
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property 
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Kiosk mode monitoring to prevent unauthorized app switching" />
+        </service>
 
-        <!-- HDMI Block Service -->
-        <service
-            android:name=".services.HDMIBlockService"
-            android:enabled="true"
-            android:exported="false" />
 
-        <!-- HDMI Block Overlay Service -->
-        <service
-            android:name=".services.HDMIBlockOverlayService"
-            android:enabled="true"
-            android:exported="false" />
 
     </application>
 

@@ -271,7 +271,7 @@ export default function TVManagement() {
                         {device.device_name}
                       </Typography>
                       <Typography variant="body2" color="textSecondary">
-                        {device.location}
+                        {device.device_location || 'No location set'}
                       </Typography>
                     </div>
                   </Box>

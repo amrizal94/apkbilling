@@ -15,13 +15,13 @@
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:layout_marginBottom="40dp">
+        android:layout_marginBottom="30dp">
 
         <ImageView
-            android:layout_width="80dp"
-            android:layout_height="80dp"
+            android:layout_width="60dp"
+            android:layout_height="60dp"
             android:src="@drawable/ic_tv_billing"
-            android:layout_marginEnd="20dp" />
+            android:layout_marginEnd="16dp" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -33,27 +33,27 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="APK Billing System"
-                android:textSize="32sp"
+                android:textSize="24sp"
                 android:textColor="@color/white"
                 android:textStyle="bold" />
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Android TV Billing App"
-                android:textSize="18sp"
+                android:text="Configuration and Status"
+                android:textSize="14sp"
                 android:textColor="@color/text_secondary"
-                android:layout_marginTop="4dp" />
+                android:layout_marginTop="2dp" />
 
         </LinearLayout>
 
     </LinearLayout>
 
-    <!-- Status Section -->
+    <!-- Device Configuration Section -->
     <androidx.cardview.widget.CardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="30dp"
+        android:layout_marginBottom="20dp"
         app:cardBackgroundColor="@color/card_background"
         app:cardCornerRadius="12dp"
         app:cardElevation="8dp">
@@ -62,43 +62,220 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp">
+            android:padding="20dp">
 
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Device Status"
-                android:textSize="20sp"
+                android:text="Device Configuration"
+                android:textSize="18sp"
                 android:textColor="@color/white"
                 android:textStyle="bold"
                 android:layout_marginBottom="16dp" />
 
+            <!-- Device Name -->
             <TextView
-                android:id="@+id/tv_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Status: STANDBY"
-                android:textSize="24sp"
-                android:textColor="@color/status_standby"
+                android:text="Device Name"
+                android:textSize="14sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginBottom="4dp" />
+
+            <EditText
+                android:id="@+id/et_device_name"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:background="@drawable/btn_outline"
+                android:textColor="@color/white"
+                android:textColorHint="@color/text_secondary"
+                android:hint="Enter device name"
+                android:padding="12dp"
+                android:textSize="14sp"
+                android:layout_marginBottom="12dp" />
+
+            <!-- Device Location -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Device Location"
+                android:textSize="14sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginBottom="4dp" />
+
+            <EditText
+                android:id="@+id/et_device_location"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:background="@drawable/btn_outline"
+                android:textColor="@color/white"
+                android:textColorHint="@color/text_secondary"
+                android:hint="Enter device location"
+                android:padding="12dp"
+                android:textSize="14sp"
+                android:layout_marginBottom="12dp" />
+
+            <!-- Server URL -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Server URL"
+                android:textSize="14sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginBottom="4dp" />
+
+            <EditText
+                android:id="@+id/et_server_url"
+                android:layout_width="match_parent"
+                android:layout_height="40dp"
+                android:background="@drawable/btn_outline"
+                android:textColor="@color/white"
+                android:textColorHint="@color/text_secondary"
+                android:hint="http://192.168.1.100:3000"
+                android:padding="12dp"
+                android:textSize="14sp"
+                android:layout_marginBottom="16dp" />
+
+            <!-- Action Buttons -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center">
+
+                <Button
+                    android:id="@+id/btn_test_connection"
+                    android:layout_width="120dp"
+                    android:layout_height="40dp"
+                    android:text="TEST"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/btn_outline"
+                    android:textColor="@color/white"
+                    android:layout_marginEnd="12dp" />
+
+                <Button
+                    android:id="@+id/btn_save_config"
+                    android:layout_width="120dp"
+                    android:layout_height="40dp"
+                    android:text="SAVE"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:background="@drawable/btn_primary"
+                    android:textColor="@color/white" />
+
+            </LinearLayout>
+
+            <!-- Connection Status -->
+            <TextView
+                android:id="@+id/tv_connection_status"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ready to test connection"
+                android:textSize="12sp"
+                android:textColor="@color/text_secondary"
+                android:layout_marginTop="12dp"
+                android:layout_gravity="center" />
+
+        </LinearLayout>
+
+    </androidx.cardview.widget.CardView>
+
+    <!-- Current Status Section -->
+    <androidx.cardview.widget.CardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="20dp"
+        app:cardBackgroundColor="@color/card_background"
+        app:cardCornerRadius="12dp"
+        app:cardElevation="8dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Current Status"
+                android:textSize="16sp"
+                android:textColor="@color/white"
                 android:textStyle="bold"
                 android:layout_marginBottom="12dp" />
 
-            <TextView
-                android:id="@+id/tv_device_id"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Device ID: Loading..."
-                android:textSize="16sp"
-                android:textColor="@color/text_secondary"
-                android:layout_marginBottom="8dp" />
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
 
-            <TextView
-                android:id="@+id/tv_server_status"
-                android:layout_width="wrap_content"
+                <TextView
+                    android:layout_width="80dp"
+                    android:layout_height="wrap_content"
+                    android:text="Status:"
+                    android:textSize="14sp"
+                    android:textColor="@color/text_secondary" />
+
+                <TextView
+                    android:id="@+id/tv_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="STANDBY"
+                    android:textSize="14sp"
+                    android:textColor="@color/status_standby"
+                    android:textStyle="bold" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Server: Checking..."
-                android:textSize="16sp"
-                android:textColor="@color/text_secondary" />
+                android:orientation="horizontal"
+                android:layout_marginBottom="8dp">
+
+                <TextView
+                    android:layout_width="80dp"
+                    android:layout_height="wrap_content"
+                    android:text="Device:"
+                    android:textSize="14sp"
+                    android:textColor="@color/text_secondary" />
+
+                <TextView
+                    android:id="@+id/tv_device_id"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Loading..."
+                    android:textSize="14sp"
+                    android:textColor="@color/white" />
+
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="80dp"
+                    android:layout_height="wrap_content"
+                    android:text="Server:"
+                    android:textSize="14sp"
+                    android:textColor="@color/text_secondary" />
+
+                <TextView
+                    android:id="@+id/tv_server_status"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Checking..."
+                    android:textSize="14sp"
+                    android:textColor="@color/text_secondary" />
+
+            </LinearLayout>
 
         </LinearLayout>
 
@@ -154,60 +331,6 @@
 
     </androidx.cardview.widget.CardView>
 
-    <!-- Control Buttons -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center"
-        android:layout_marginBottom="30dp">
-
-        <Button
-            android:id="@+id/btn_start_billing"
-            android:layout_width="200dp"
-            android:layout_height="60dp"
-            android:text="START BILLING"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:background="@drawable/btn_primary"
-            android:textColor="@color/white"
-            android:layout_marginEnd="20dp"
-            android:focusable="true"
-            android:focusableInTouchMode="true" />
-
-        <Button
-            android:id="@+id/btn_stop_billing"
-            android:layout_width="200dp"
-            android:layout_height="60dp"
-            android:text="STOP BILLING"
-            android:textSize="16sp"
-            android:textStyle="bold"
-            android:background="@drawable/btn_secondary"
-            android:textColor="@color/white"
-            android:enabled="false"
-            android:focusable="true"
-            android:focusableInTouchMode="true" />
-
-    </LinearLayout>
-
-    <!-- Settings Button -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center">
-
-        <Button
-            android:id="@+id/btn_settings"
-            android:layout_width="160dp"
-            android:layout_height="50dp"
-            android:text="SETTINGS"
-            android:textSize="14sp"
-            android:background="@drawable/btn_outline"
-            android:textColor="@color/white"
-            android:focusable="true"
-            android:focusableInTouchMode="true" />
-
-    </LinearLayout>
 
     <!-- Footer -->
     <LinearLayout

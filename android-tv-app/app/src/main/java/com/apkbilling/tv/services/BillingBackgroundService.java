@@ -35,6 +35,7 @@ public class BillingBackgroundService extends Service {
     private boolean isSessionActive = false;
     
     private static final int HEARTBEAT_INTERVAL = 30000; // 30 seconds
+    private long lastToastTime = 0; // Prevent toast spam from service
     
     @Override
     public void onCreate() {
@@ -50,8 +51,17 @@ public class BillingBackgroundService extends Service {
         }
         
         handler = new Handler(Looper.getMainLooper());
+        
+        // Ensure notification channel is created before starting foreground
         createNotificationChannel();
-        startForeground(NOTIFICATION_ID, createNotification("Starting billing service...", "00:00:00"));
+        
+        try {
+            // Start as foreground service with notification
+            startForeground(NOTIFICATION_ID, createNotification("Starting billing service...", "00:00:00"));
+            Log.d(TAG, "Foreground service started successfully");
+        } catch (Exception e) {
+            Log.e(TAG, "Failed to start foreground service", e);
+        }
         
         startSessionMonitoring();
         startHeartbeat();
@@ -129,17 +139,18 @@ public class BillingBackgroundService extends Service {
                         return;
                     }
                     
-                    // Check with server every 30 seconds to detect manual session stops
-                    if (remainingSeconds % 30 == 0) {
-                        Log.d(TAG, "Periodic session validation check");
+                    // Real-time sync: Check with server every 10 seconds to detect manual session stops
+                    if (remainingSeconds % 10 == 0) {
+                        Log.d(TAG, "Real-time session validation check");
                         checkForActiveSession();
                     }
                 } else if (!isSessionActive) {
-                    // Check for new sessions every 30 seconds when not active
+                    // Real-time detection: Check for new sessions every 10 seconds when not active
                     checkForActiveSession();
                 }
                 
-                handler.postDelayed(this, isSessionActive ? 1000 : 30000);
+                // Real-time responsiveness: check every second when active, every 10 seconds when inactive
+                handler.postDelayed(this, isSessionActive ? 1000 : 10000);
             }
         };
         
@@ -214,12 +225,12 @@ public class BillingBackgroundService extends Service {
         currentSession = null;
         remainingSeconds = 0;
         
-        Log.d(TAG, "Session stopped - returning to billing screen");
+        Log.d(TAG, "Session stopped - returning customer to billing app and trapping until new session");
         
         // Show notification about session termination
         showWarningNotification("Session terminated by operator");
         
-        // Return customer to billing screen - force bring to front
+        // Return customer to billing screen - they must wait for new session
         Intent billingIntent = new Intent(this, MainActivity.class);
         billingIntent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | 
                               Intent.FLAG_ACTIVITY_CLEAR_TOP | 
@@ -237,13 +248,8 @@ public class BillingBackgroundService extends Service {
         
         showWarningNotification("Session expired! TV will shutdown soon.");
         
-        // Show final warning overlay
-        Intent expiredIntent = new Intent(this, BillingOverlayService.class);
-        expiredIntent.setAction("SHOW_EXPIRED");
-        if (currentSession != null) {
-            expiredIntent.putExtra("customer_name", currentSession.customer_name);
-        }
-        startService(expiredIntent);
+        // Show final warning toast instead of overlay
+        showWarningToast("⏰ Session expired! Returning to billing screen...");
         
         stopCurrentSession();
     }
@@ -260,29 +266,46 @@ public class BillingBackgroundService extends Service {
     }
     
     private void updateOverlay() {
+        // Disabled: Timer overlay is too intrusive for Netflix/gaming experience
+        // Customer can see remaining time in billing app if needed
+        // Only critical warnings will be shown via toast notifications
+        
         if (isSessionActive && currentSession != null) {
-            Intent overlayIntent = new Intent(this, BillingOverlayService.class);
-            overlayIntent.setAction("UPDATE_TIME");
-            overlayIntent.putExtra("remaining_seconds", remainingSeconds);
-            overlayIntent.putExtra("customer_name", currentSession.customer_name);
-            startService(overlayIntent);
+            // Show warning notifications instead of persistent overlay
+            if (remainingSeconds == 300) { // 5 minutes warning
+                showWarningToast("⚠️ 5 minutes remaining!");
+            } else if (remainingSeconds == 60) { // 1 minute warning  
+                showWarningToast("⚠️ 1 minute remaining!");
+            }
         }
     }
     
     private void startOverlay() {
-        if (currentSession != null) {
-            Intent overlayIntent = new Intent(this, BillingOverlayService.class);
-            overlayIntent.setAction("START_OVERLAY");
-            overlayIntent.putExtra("customer_name", currentSession.customer_name);
-            overlayIntent.putExtra("duration_minutes", (long) remainingSeconds / 60);
-            startService(overlayIntent);
-        }
+        // Disabled: No more intrusive overlay during Netflix/gaming
+        // Customer can enjoy content without distraction
+        Log.d(TAG, "Overlay disabled for better user experience - session active");
     }
     
     private void stopOverlay() {
-        Intent overlayIntent = new Intent(this, BillingOverlayService.class);
-        overlayIntent.setAction("STOP_OVERLAY");
-        startService(overlayIntent);
+        // Disabled: No overlay to stop since we don't show intrusive timer
+        Log.d(TAG, "Overlay stop skipped - no intrusive overlay was shown");
+    }
+    
+    private void showWarningToast(String message) {
+        long currentTime = System.currentTimeMillis();
+        
+        // Prevent toast spam from service - minimum 10 seconds between service toasts
+        if (currentTime - lastToastTime < 10000) {
+            Log.d(TAG, "Service toast throttled: " + message);
+            return;
+        }
+        
+        // Show brief toast notification instead of persistent overlay
+        Intent toastIntent = new Intent("com.apkbilling.tv.SHOW_TOAST");
+        toastIntent.putExtra("message", message);
+        sendBroadcast(toastIntent);
+        lastToastTime = currentTime;
+        Log.d(TAG, "Warning toast sent: " + message);
     }
     
     private void showWarningNotification(String message) {
@@ -345,9 +368,20 @@ public class BillingBackgroundService extends Service {
             return;
         }
         
-        Log.d(TAG, "Sending heartbeat for device: " + deviceId);
+        // Get current device name and location from settings
+        String deviceName = settingsManager.getDeviceName();
+        if (deviceName == null || deviceName.isEmpty()) {
+            deviceName = "AndroidTV-" + android.os.Build.MODEL;
+        }
         
-        apiClient.sendHeartbeat(deviceId, new ApiClient.ApiCallback<ApiClient.HeartbeatResponse>() {
+        String deviceLocation = settingsManager.getDeviceLocation();
+        if (deviceLocation == null) {
+            deviceLocation = "";
+        }
+        
+        Log.d(TAG, "Sending heartbeat for device: " + deviceId + " (" + deviceName + " @ " + deviceLocation + ")");
+        
+        apiClient.sendHeartbeat(deviceId, deviceName, deviceLocation, new ApiClient.ApiCallback<ApiClient.HeartbeatResponse>() {
             @Override
             public void onSuccess(ApiClient.HeartbeatResponse data) {
                 Log.d(TAG, "Heartbeat sent successfully");

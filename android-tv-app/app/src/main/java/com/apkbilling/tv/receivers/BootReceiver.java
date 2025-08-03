@@ -5,7 +5,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.util.Log;
 
-import com.apkbilling.tv.services.BillingOverlayService;
 import com.apkbilling.tv.services.NetworkMonitorService;
 import com.apkbilling.tv.utils.SettingsManager;
 
@@ -35,11 +34,6 @@ public class BootReceiver extends BroadcastReceiver {
     
     private void startServices(Context context) {
         try {
-            // Start overlay service
-            Intent overlayIntent = new Intent(context, BillingOverlayService.class);
-            overlayIntent.setAction("AUTO_START");
-            context.startService(overlayIntent);
-            
             // Start network monitor service
             Intent networkIntent = new Intent(context, NetworkMonitorService.class);
             context.startService(networkIntent);

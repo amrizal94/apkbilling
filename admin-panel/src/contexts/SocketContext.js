@@ -87,6 +87,12 @@ export function SocketProvider({ children }) {
         window.dispatchEvent(new CustomEvent('refreshTVStatus'));
       });
 
+      newSocket.on('device_updated', (data) => {
+        console.log('📱 Device updated:', data);
+        // Trigger TV status refresh to show updated device info
+        window.dispatchEvent(new CustomEvent('refreshTVStatus'));
+      });
+
       newSocket.on('device_status_changed', (data) => {
         console.log('📱 Device status changed:', data);
         if (data.new_status === 'offline') {
@@ -101,6 +107,13 @@ export function SocketProvider({ children }) {
           toast.success(`📶 ${data.device_name} is back online`);
         }
         // Trigger TV status refresh
+        window.dispatchEvent(new CustomEvent('refreshTVStatus'));
+      });
+
+      newSocket.on('device_auto_registered', (data) => {
+        console.log('🆕 Device auto-registered:', data);
+        toast.success(`🆕 New device registered: ${data.device_name}${data.device_location ? ` @ ${data.device_location}` : ''}`);
+        // Trigger TV status refresh to show new device
         window.dispatchEvent(new CustomEvent('refreshTVStatus'));
       });
 

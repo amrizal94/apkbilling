@@ -26,37 +26,82 @@ router.post('/discover', async (req, res) => {
         const ip_address = req.ip || req.connection.remoteAddress || 'unknown';
         console.log(`Device discovery: ${device_name} (${device_id}) from ${ip_address}`);
         
-        // Check if already discovered
-        const [existing] = await db.execute(
-            'SELECT * FROM device_discoveries WHERE device_id = $1',
+        // Check if device is already registered in tv_devices first
+        const [registered] = await db.execute(
+            'SELECT id, device_name, device_location FROM tv_devices WHERE device_id = $1',
             [device_id]
         );
         
-        if (existing.length > 0) {
-            // Update discovery info
+        if (registered.length > 0) {
+            // Device is already registered - update info directly
             await db.execute(`
-                UPDATE device_discoveries 
-                SET device_name = $1, ip_address = $2, last_seen = CURRENT_TIMESTAMP,
-                    device_type = $3, screen_resolution = $4, os_version = $5, app_version = $6, location = $7
-                WHERE device_id = $8
-            `, [device_name, ip_address, device_type, screen_resolution, os_version, app_version, location, device_id]);
-        } else {
-            // Add to discovery list
+                UPDATE tv_devices 
+                SET device_name = $1, device_location = $2, ip_address = $3, last_heartbeat = CURRENT_TIMESTAMP, status = 'online'
+                WHERE device_id = $4
+            `, [device_name, location, ip_address, device_id]);
+            
+            console.log(`📱 Discovery: Updated registered device ${device_name} (${device_id})`);
+            
+            // Return registered device info
+            const responseData = {
+                success: true,
+                message: 'Device info updated successfully.',
+                data: {
+                    id: registered[0].id,
+                    device_id: device_id,
+                    device_name: device_name,
+                    status: 'registered',
+                    created_at: new Date().toISOString()
+                }
+            };
+            
+            console.log(`📱 Discovery response for ${device_id}:`, JSON.stringify(responseData, null, 2));
+            res.json(responseData);
+            return;
+        }
+        
+        // Device not registered yet - AUTO-REGISTER directly (no approval needed)
+        console.log(`📱 Auto-registering new device: ${device_name} (${device_id})`);
+        
+        // Insert directly into tv_devices for immediate availability
+        const [result] = await db.execute(`
+            INSERT INTO tv_devices (device_id, device_name, device_location, ip_address, status, last_heartbeat)
+            VALUES ($1, $2, $3, $4, 'online', CURRENT_TIMESTAMP) RETURNING id, created_at
+        `, [device_id, device_name, location || null, ip_address]);
+        
+        console.log(`✅ Auto-registered device: ${device_name} with ID ${result[0].id}`);
+        
+        // Also add to discovery log for audit trail (marked as auto-approved)
+        try {
             await db.execute(`
                 INSERT INTO device_discoveries 
-                (device_id, device_name, device_type, screen_resolution, os_version, app_version, ip_address, location)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                (device_id, device_name, device_type, screen_resolution, os_version, app_version, ip_address, location, approved_at, approved_by)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, 1)
             `, [device_id, device_name, device_type, screen_resolution, os_version, app_version, ip_address, location]);
+        } catch (auditError) {
+            console.log('Audit trail creation failed (non-critical):', auditError.message);
+        }
+        
+        // Emit real-time notification to admin panel
+        if (io) {
+            io.emit('device_auto_registered', {
+                device_id: device_id,
+                device_name: device_name,
+                device_location: location,
+                ip_address: ip_address,
+                timestamp: new Date().toISOString()
+            });
         }
         
         res.json({
             success: true,
-            message: 'Device discovered successfully. Please wait for operator approval.',
+            message: 'Device registered automatically and ready to use!',
             data: {
+                id: result[0].id,
                 device_id: device_id,
                 device_name: device_name,
-                status: 'discovered',
-                message: 'Device is in discovery queue. Operator will approve shortly.'
+                status: 'registered',
+                created_at: result[0].created_at
             }
         });
         
@@ -219,6 +264,11 @@ router.post('/migrate-heartbeat', async (req, res) => {
         // Add location column if it doesn't exist
         await db.execute(`
             ALTER TABLE device_discoveries ADD COLUMN IF NOT EXISTS location VARCHAR(255)
+        `);
+        
+        // Add device_location column to tv_devices if it doesn't exist
+        await db.execute(`
+            ALTER TABLE tv_devices ADD COLUMN IF NOT EXISTS device_location VARCHAR(255) DEFAULT NULL
         `);
         
         // Create indexes
@@ -628,14 +678,51 @@ router.get('/active-session/:deviceId', async (req, res) => {
 router.post('/heartbeat/:deviceId', async (req, res) => {
     try {
         const { deviceId } = req.params;
+        const { device_name, device_location } = req.body;
         const ip_address = req.ip || req.connection.remoteAddress || 'unknown';
         
-        // Update device last heartbeat
-        await db.execute(`
-            UPDATE tv_devices 
-            SET last_heartbeat = CURRENT_TIMESTAMP, status = 'online'
-            WHERE device_id = $1
-        `, [deviceId]);
+        // Update device last heartbeat and device info if provided
+        if ((device_name && device_name.trim() !== '') || (device_location && device_location.trim() !== '')) {
+            const updates = ['last_heartbeat = CURRENT_TIMESTAMP', 'status = \'online\''];
+            const params = [deviceId];
+            let paramIndex = 2;
+            
+            if (device_name && device_name.trim() !== '') {
+                updates.push(`device_name = $${paramIndex}`);
+                params.push(device_name.trim());
+                paramIndex++;
+            }
+            
+            if (device_location && device_location.trim() !== '') {
+                updates.push(`device_location = $${paramIndex}`);
+                params.push(device_location.trim());
+                paramIndex++;
+            }
+            
+            await db.execute(`
+                UPDATE tv_devices 
+                SET ${updates.join(', ')}
+                WHERE device_id = $1
+            `, params);
+            
+            console.log(`📱 Heartbeat: Device ${deviceId} updated - Name: ${device_name || 'unchanged'}, Location: ${device_location || 'unchanged'}`);
+            
+            // Notify admin panel of device update
+            if (io) {
+                io.emit('device_updated', {
+                    device_id: deviceId,
+                    device_name: device_name,
+                    device_location: device_location,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } else {
+            await db.execute(`
+                UPDATE tv_devices 
+                SET last_heartbeat = CURRENT_TIMESTAMP, status = 'online'
+                WHERE device_id = $1
+            `, [deviceId]);
+        }
         
         // Log heartbeat
         await db.execute(`
@@ -1358,3 +1445,6 @@ router.post('/test-heartbeat-monitor', async (req, res) => {
 });
 
 module.exports = router;
+// Trigger restart
+// Updated discover endpoint
+// Add logging

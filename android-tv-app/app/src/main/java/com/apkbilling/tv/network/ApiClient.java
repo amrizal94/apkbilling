@@ -121,13 +121,16 @@ public class ApiClient {
                 
                 if (response.isSuccessful()) {
                     try {
-                        ApiResponse<DeviceResponse> apiResponse = gson.fromJson(responseBody, ApiResponse.class);
+                        Type responseType = new TypeToken<ApiResponse<DeviceResponse>>(){}.getType();
+                        ApiResponse<DeviceResponse> apiResponse = gson.fromJson(responseBody, responseType);
                         if (apiResponse.success) {
                             callback.onSuccess(apiResponse.data);
                         } else {
                             callback.onError(apiResponse.message);
                         }
                     } catch (Exception e) {
+                        Log.e(TAG, "Failed to parse device response", e);
+                        Log.e(TAG, "Response body: " + responseBody);
                         callback.onError("Invalid response format");
                     }
                 } else {
@@ -170,13 +173,16 @@ public class ApiClient {
                 
                 if (response.isSuccessful()) {
                     try {
-                        ApiResponse<DeviceResponse> apiResponse = gson.fromJson(responseBody, ApiResponse.class);
+                        Type responseType = new TypeToken<ApiResponse<DeviceResponse>>(){}.getType();
+                        ApiResponse<DeviceResponse> apiResponse = gson.fromJson(responseBody, responseType);
                         if (apiResponse.success) {
                             callback.onSuccess(apiResponse.data);
                         } else {
                             callback.onError(apiResponse.message);
                         }
                     } catch (Exception e) {
+                        Log.e(TAG, "Failed to parse device response", e);
+                        Log.e(TAG, "Response body: " + responseBody);
                         callback.onError("Invalid response format");
                     }
                 } else {
@@ -324,12 +330,18 @@ public class ApiClient {
         });
     }
     
-    public void sendHeartbeat(String deviceId, ApiCallback<HeartbeatResponse> callback) {
+    public void sendHeartbeat(String deviceId, String deviceName, String deviceLocation, ApiCallback<HeartbeatResponse> callback) {
         String url = baseUrl + "/tv/heartbeat/" + deviceId;
+        
+        // Create JSON body with device name and location for real-time updates
+        String jsonBody = "{\n" +
+                "  \"device_name\": \"" + (deviceName != null ? deviceName : "") + "\",\n" +
+                "  \"device_location\": \"" + (deviceLocation != null ? deviceLocation : "") + "\"\n" +
+                "}";
         
         Request httpRequest = new Request.Builder()
                 .url(url)
-                .post(RequestBody.create("", JSON))
+                .post(RequestBody.create(jsonBody, JSON))
                 .build();
         
         client.newCall(httpRequest).enqueue(new Callback() {

@@ -121,4 +121,4 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-startServer();
+startServer();// Force restart

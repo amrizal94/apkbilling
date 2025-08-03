@@ -255,11 +255,48 @@ public class SettingsActivity extends AppCompatActivity {
         
         showToast("Settings saved successfully!");
         
+        // Re-register device with new name to update server
+        reRegisterDeviceWithNewName(serverUrl, deviceName, deviceLocation);
+        
         // Update connection status
         updateConnectionStatus();
         
         // Optional: Go back to main activity
         finishAndReturnToMain();
+    }
+    
+    private void reRegisterDeviceWithNewName(String serverUrl, String deviceName, String deviceLocation) {
+        try {
+            String deviceId = android.provider.Settings.Secure.getString(
+                getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
+            
+            Log.d(TAG, "Re-registering device with new name: " + deviceName);
+            
+            // Update API client URL first
+            apiClient.setBaseUrl(serverUrl + "/api");
+            
+            // Use discoverDevice instead of registerDevice to include location
+            apiClient.discoverDevice(deviceId, deviceName, deviceLocation, new ApiClient.ApiCallback<ApiClient.DeviceResponse>() {
+                @Override
+                public void onSuccess(ApiClient.DeviceResponse data) {
+                    Log.d(TAG, "Device re-registered successfully with new name: " + data.device_name);
+                    runOnUiThread(() -> {
+                        showToast("Device name updated on server!");
+                    });
+                }
+                
+                @Override
+                public void onError(String error) {
+                    Log.e(TAG, "Device re-registration failed: " + error);
+                    runOnUiThread(() -> {
+                        showToast("Warning: Device name saved locally but server update failed");
+                    });
+                }
+            });
+            
+        } catch (Exception e) {
+            Log.e(TAG, "Error during device re-registration", e);
+        }
     }
     
     private void resetToDefaults() {
