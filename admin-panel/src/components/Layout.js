@@ -40,6 +40,7 @@ const drawerWidth = 240;
 const menuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
   { text: 'TV Management', icon: <TvIcon />, path: '/tv-management' },
+  { text: 'Package Management', icon: <PosIcon />, path: '/packages' },
   { text: 'POS System', icon: <PosIcon />, path: '/pos' },
   { text: 'Reports', icon: <ReportsIcon />, path: '/reports' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },

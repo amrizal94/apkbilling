@@ -135,7 +135,11 @@
                 android:value="Kiosk mode monitoring to prevent unauthorized app switching" />
         </service>
 
-
+        <!-- WebSocket Service -->
+        <service
+            android:name=".services.WebSocketService"
+            android:enabled="true"
+            android:exported="false" />
 
     </application>
 

@@ -44,6 +44,7 @@ app.get('/api/health', (req, res) => {
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
+app.use('/api/packages', require('./routes/packages'));
 
 // TV routes with socket injection
 const tvRoutes = require('./routes/tv');
@@ -70,6 +71,11 @@ cleanupScheduler.start();
 // Start device discovery cleanup service
 const discoveryCleanup = tvRoutes.initCleanupService(io);
 discoveryCleanup.start(5); // Run every 5 minutes
+
+// Start session expired service
+const SessionExpiredService = require('./services/sessionExpiredService');
+const sessionExpiredService = new SessionExpiredService(io);
+sessionExpiredService.start(1); // Check every 1 minute
 
 // Global error handler
 app.use((err, req, res, next) => {
@@ -111,14 +117,4 @@ async function startServer() {
     }
 }
 
-// Add health check endpoint
-app.get('/api/health', (req, res) => {
-    res.json({
-        success: true,
-        message: 'Server is healthy',
-        timestamp: new Date().toISOString(),
-        uptime: process.uptime()
-    });
-});
-
-startServer();// Force restart
+startServer();

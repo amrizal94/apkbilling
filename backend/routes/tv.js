@@ -364,13 +364,13 @@ router.get('/devices', async (req, res) => {
                 s.amount_paid,
                 s.start_time,
                 s.status as session_status,
-                p.package_name,
+                p.name,
                 p.price,
                 EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - s.start_time))/60 as elapsed_minutes,
                 GREATEST(0, s.duration_minutes - EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - s.start_time))/60) as remaining_minutes
             FROM tv_devices d
             LEFT JOIN tv_sessions s ON d.id = s.device_id AND s.status = 'active'
-            LEFT JOIN billing_packages p ON s.package_id = p.id
+            LEFT JOIN packages p ON s.package_id = p.id
             ORDER BY d.device_name
         `);
         
@@ -418,14 +418,83 @@ router.post('/devices', auth, async (req, res) => {
     }
 });
 
+// Delete TV device
+router.delete('/devices/:id', auth, async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Check if device has active sessions
+        const [activeSessions] = await db.execute(
+            'SELECT COUNT(*) as count FROM tv_sessions WHERE device_id = $1 AND status = $2',
+            [id, 'active']
+        );
+        
+        if (activeSessions[0].count > 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot delete device with active sessions. Please stop all sessions first.'
+            });
+        }
+        
+        // Get device info before deletion for logging
+        const [deviceInfo] = await db.execute(
+            'SELECT device_name, device_id FROM tv_devices WHERE id = $1',
+            [id]
+        );
+        
+        if (deviceInfo.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Device not found'
+            });
+        }
+        
+        // Delete the device (CASCADE will handle related records)
+        const [, result] = await db.execute(
+            'DELETE FROM tv_devices WHERE id = $1',
+            [id]
+        );
+        
+        if (result.rowCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Device not found'
+            });
+        }
+        
+        console.log(`🗑️ Device deleted: ${deviceInfo[0].device_name} (${deviceInfo[0].device_id}) by ${req.user.username}`);
+        
+        // Emit real-time notification
+        if (io) {
+            io.emit('device_deleted', {
+                device_id: deviceInfo[0].device_id,
+                device_name: deviceInfo[0].device_name,
+                deleted_by: req.user.full_name,
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        res.json({
+            success: true,
+            message: `Device '${deviceInfo[0].device_name}' deleted successfully`
+        });
+    } catch (error) {
+        console.error('Delete device error:', error);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
 // Start billing session
 router.post('/start-session', auth, async (req, res) => {
     try {
         const { device_id, customer_name, package_id } = req.body;
         
-        // Get device info for fallback customer name
+        // Get device info for fallback customer name and device_id
         const [devices] = await db.execute(
-            'SELECT device_name FROM tv_devices WHERE id = $1',
+            'SELECT device_name, device_id FROM tv_devices WHERE id = $1',
             [device_id]
         );
         
@@ -455,7 +524,7 @@ router.post('/start-session', auth, async (req, res) => {
         // Get package details
         console.log('Getting package details for package_id:', package_id);
         const [packages] = await db.execute(
-            'SELECT duration_minutes, price FROM billing_packages WHERE id = $1',
+            'SELECT duration_minutes, price FROM packages WHERE id = $1',
             [package_id]
         );
         console.log('Package found:', packages.length > 0 ? packages[0] : 'none');
@@ -489,7 +558,8 @@ router.post('/start-session', auth, async (req, res) => {
         // Emit real-time update
         if (io) {
             io.emit('session_started', {
-                device_id: device_id,
+                device_id: devices[0].device_id, // Use string device_id, not database ID
+                db_device_id: device_id, // Keep database ID for admin panel
                 session_id: result[0].id,
                 customer_name: finalCustomerName,
                 package: package_info,
@@ -584,6 +654,29 @@ router.post('/add-time/:sessionId', auth, async (req, res) => {
             VALUES ($1, $2, $3, $4, $5)
         `, ['tv_billing', sessionId, amount_paid, 'cash', req.user.full_name]);
         
+        // Get session and device info for WebSocket notification
+        const [sessionInfo] = await db.execute(`
+            SELECT s.*, d.device_name, d.device_id 
+            FROM tv_sessions s
+            JOIN tv_devices d ON s.device_id = d.id 
+            WHERE s.id = $1
+        `, [sessionId]);
+        
+        // Emit real-time notification
+        if (io && sessionInfo.length > 0) {
+            const session = sessionInfo[0];
+            io.emit('time_added', {
+                session_id: sessionId,
+                device_id: session.device_id,
+                device_name: session.device_name,
+                customer_name: session.customer_name,
+                additional_minutes: additional_minutes,
+                amount_paid: amount_paid,
+                new_duration: session.duration_minutes,
+                timestamp: new Date().toISOString()
+            });
+        }
+        
         res.json({
             success: true,
             message: 'Time added successfully'
@@ -630,19 +723,24 @@ router.get('/active-session/:deviceId', async (req, res) => {
         console.log('Getting active session for device:', deviceId);
         
         const [sessions] = await db.execute(`
-            SELECT s.*, p.package_name, p.duration_minutes, p.price,
+            SELECT s.*, p.name, p.price,
+                   s.duration_minutes as session_duration_minutes,
+                   p.duration_minutes as package_duration_minutes,
                    EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - s.start_time))/60 as elapsed_minutes
             FROM tv_sessions s
-            LEFT JOIN billing_packages p ON s.package_id = p.id
+            LEFT JOIN packages p ON s.package_id = p.id
             INNER JOIN tv_devices d ON s.device_id = d.id
             WHERE d.device_id = $1 AND s.status = $2
+            AND EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - s.start_time))/60 < s.duration_minutes
             ORDER BY s.start_time DESC
             LIMIT 1
         `, [deviceId, 'active']);
         
         if (sessions.length > 0) {
             const session = sessions[0];
-            const remainingMinutes = Math.max(0, session.duration_minutes - Math.floor(session.elapsed_minutes));
+            // Use session's actual duration (which can be modified by time additions)
+            const actualDuration = session.session_duration_minutes || session.duration_minutes;
+            const remainingMinutes = Math.max(0, actualDuration - Math.floor(session.elapsed_minutes));
             
             res.json({
                 success: true,
@@ -650,8 +748,8 @@ router.get('/active-session/:deviceId', async (req, res) => {
                     session_id: session.id,
                     device_id: session.device_id,
                     customer_name: session.customer_name,
-                    package_name: session.package_name,
-                    duration_minutes: session.duration_minutes,
+                    name: session.name,
+                    duration_minutes: actualDuration, // Use actual session duration
                     remaining_minutes: remainingMinutes,
                     elapsed_minutes: Math.floor(session.elapsed_minutes),
                     amount: session.amount_paid,
@@ -1292,7 +1390,7 @@ router.get('/setup-qr/:deviceId', async (req, res) => {
 router.get('/packages', async (req, res) => {
     try {
         const [packages] = await db.execute(
-            'SELECT * FROM billing_packages WHERE is_active = TRUE ORDER BY duration_minutes'
+            'SELECT * FROM packages WHERE is_active = TRUE ORDER BY duration_minutes'
         );
         
         res.json({
@@ -1444,7 +1542,25 @@ router.post('/test-heartbeat-monitor', async (req, res) => {
     }
 });
 
+// Get expired sessions for admin notifications
+router.get('/expired-sessions', auth, async (req, res) => {
+    try {
+        const SessionExpiredService = require('../services/sessionExpiredService');
+        const expiredService = new SessionExpiredService();
+        
+        const expiredSessions = await expiredService.getExpiredSessions();
+        
+        res.json({
+            success: true,
+            expired_sessions: expiredSessions
+        });
+    } catch (error) {
+        console.error('Error fetching expired sessions:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch expired sessions'
+        });
+    }
+});
+
 module.exports = router;
-// Trigger restart
-// Updated discover endpoint
-// Add logging

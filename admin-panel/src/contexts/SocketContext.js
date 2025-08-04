@@ -40,6 +40,13 @@ export function SocketProvider({ children }) {
         }
       });
 
+      // Listen for session expired events
+      newSocket.on('sessionExpired', (data) => {
+        console.log('⏰ Received session expired event:', data);
+        // Dispatch custom event that components can listen to
+        window.dispatchEvent(new CustomEvent('sessionExpired', { detail: data }));
+      });
+
       newSocket.on('auth_error', (error) => {
         console.error('❌ Socket auth error:', error);
         toast.error('Real-time connection authentication failed');
@@ -68,7 +75,7 @@ export function SocketProvider({ children }) {
 
       newSocket.on('session_started', (data) => {
         console.log('🎯 Session started:', data);
-        toast.success(`✅ Session started on ${data.customer_name}`);
+        toast.success(`✅ Session started: ${data.customer_name}`);
         // Trigger TV status refresh
         window.dispatchEvent(new CustomEvent('refreshTVStatus'));
       });
@@ -85,6 +92,22 @@ export function SocketProvider({ children }) {
         });
         // Trigger TV status refresh
         window.dispatchEvent(new CustomEvent('refreshTVStatus'));
+      });
+
+      newSocket.on('sessionExpired', (data) => {
+        console.log('⏰ Session expired:', data);
+        toast(`⏰ Session Expired: ${data.customerName} on ${data.deviceName} (${data.overdueMinutes}min overdue)`, {
+          icon: '⏰',
+          style: {
+            background: '#F44336',
+            color: '#FFF',
+          },
+          duration: 5000,
+        });
+        // Trigger TV status refresh to remove expired session from UI
+        window.dispatchEvent(new CustomEvent('refreshTVStatus'));
+        // Also trigger specific expired session handler
+        window.dispatchEvent(new CustomEvent('sessionExpired', { detail: data }));
       });
 
       newSocket.on('device_updated', (data) => {
@@ -114,6 +137,20 @@ export function SocketProvider({ children }) {
         console.log('🆕 Device auto-registered:', data);
         toast.success(`🆕 New device registered: ${data.device_name}${data.device_location ? ` @ ${data.device_location}` : ''}`);
         // Trigger TV status refresh to show new device
+        window.dispatchEvent(new CustomEvent('refreshTVStatus'));
+      });
+
+      newSocket.on('device_deleted', (data) => {
+        console.log('🗑️ Device deleted:', data);
+        toast.success(`🗑️ Device deleted: ${data.device_name} by ${data.deleted_by}`);
+        // Trigger TV status refresh to remove deleted device
+        window.dispatchEvent(new CustomEvent('refreshTVStatus'));
+      });
+
+      newSocket.on('time_added', (data) => {
+        console.log('⏰ Time added:', data);
+        toast.success(`⏰ Added ${data.additional_minutes} minutes to ${data.device_name}`);
+        // Trigger TV status refresh to update remaining time
         window.dispatchEvent(new CustomEvent('refreshTVStatus'));
       });
 

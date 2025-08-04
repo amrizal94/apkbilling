@@ -8,6 +8,7 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import TVManagement from './pages/TVManagement';
+import PackageManagement from './pages/PackageManagement';
 import POSSystem from './pages/POSSystem';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
@@ -50,6 +51,7 @@ function AppContent() {
                   <Routes>
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/tv-management" element={<TVManagement />} />
+                    <Route path="/packages" element={<PackageManagement />} />
                     <Route path="/pos" element={<POSSystem />} />
                     <Route path="/reports" element={<Reports />} />
                     <Route path="/settings" element={<Settings />} />

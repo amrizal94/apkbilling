@@ -145,8 +145,62 @@ function socketHandler(io) {
             `);
             
             if (activeSessions.length > 0) {
+                // Broadcast to admin panel
                 io.to('role_admin').emit('active_sessions_update', activeSessions);
                 io.to('role_manager').emit('active_sessions_update', activeSessions);
+                
+                // Broadcast timer updates to individual Android devices
+                activeSessions.forEach(session => {
+                    const remainingMinutes = Math.floor(session.remaining_minutes);
+                    const hours = Math.floor(remainingMinutes / 60);
+                    const minutes = remainingMinutes % 60;
+                    const timeDisplay = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`;
+                    
+                    const timerData = {
+                        device_id: session.device_id,
+                        remaining_minutes: remainingMinutes,
+                        time_display: timeDisplay,
+                        customer_name: session.customer_name,
+                        timestamp: new Date().toISOString()
+                    };
+                    
+                    // Get device_id string from device integer ID
+                    db.execute('SELECT device_id FROM tv_devices WHERE id = $1', [session.device_id])
+                        .then(([deviceResult]) => {
+                            if (deviceResult.length > 0) {
+                                const deviceIdString = deviceResult[0].device_id;
+                                
+                                // Broadcast timer update to specific device
+                                io.to(`user_ATV_${deviceIdString}`).emit('timer_update', timerData);
+                                io.to(`user_${deviceIdString}`).emit('timer_update', timerData);
+                                io.to('role_device').emit('timer_update', timerData);
+                                
+                                // Send warnings for low time
+                                if (remainingMinutes === 5) {
+                                    const warningData = {
+                                        device_id: deviceIdString,
+                                        message: '⚠️ 5 minutes remaining!',
+                                        remaining_minutes: remainingMinutes,
+                                        timestamp: new Date().toISOString()
+                                    };
+                                    io.to(`user_ATV_${deviceIdString}`).emit('session_warning', warningData);
+                                    io.to(`user_${deviceIdString}`).emit('session_warning', warningData);
+                                    io.to('role_device').emit('session_warning', warningData);
+                                } else if (remainingMinutes === 1) {
+                                    const warningData = {
+                                        device_id: deviceIdString,
+                                        message: '⚠️ 1 minute remaining!',
+                                        remaining_minutes: remainingMinutes,
+                                        timestamp: new Date().toISOString()
+                                    };
+                                    io.to(`user_ATV_${deviceIdString}`).emit('session_warning', warningData);
+                                    io.to(`user_${deviceIdString}`).emit('session_warning', warningData);
+                                    io.to('role_device').emit('session_warning', warningData);
+                                }
+                            }
+                        })
+                        .catch(err => console.error('Error getting device_id for timer broadcast:', err));
+                });
             }
             
             // Send pending orders update

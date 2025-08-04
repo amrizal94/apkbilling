@@ -6,6 +6,9 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.BroadcastReceiver;
+import android.content.Context;
 import android.os.Build;
 import android.os.Handler;
 import android.os.IBinder;
@@ -37,6 +40,36 @@ public class BillingBackgroundService extends Service {
     private static final int HEARTBEAT_INTERVAL = 30000; // 30 seconds
     private long lastToastTime = 0; // Prevent toast spam from service
     
+    private BroadcastReceiver webSocketReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            
+            if ("com.apkbilling.tv.TIME_ADDED".equals(action)) {
+                int addedMinutes = intent.getIntExtra("additional_minutes", 0);
+                Log.i(TAG, "🔔 WebSocket: Time added +" + addedMinutes + " minutes (background service)");
+                
+                // Update notification immediately without waiting for sync
+                updateNotification();
+                
+            } else if ("com.apkbilling.tv.SESSION_STARTED".equals(action)) {
+                Log.i(TAG, "🔔 WebSocket: Session started (background service)");
+                
+            } else if ("com.apkbilling.tv.SESSION_ENDED".equals(action)) {
+                Log.i(TAG, "🔔 WebSocket: Session ended (background service)");
+                if (isSessionActive) {
+                    stopCurrentSession();
+                }
+                
+            } else if ("com.apkbilling.tv.SESSION_EXPIRED".equals(action)) {
+                Log.w(TAG, "🔔 WebSocket: Session expired (background service)");
+                if (isSessionActive) {
+                    stopCurrentSession();
+                }
+            }
+        }
+    };
+    
     @Override
     public void onCreate() {
         super.onCreate();
@@ -51,6 +84,20 @@ public class BillingBackgroundService extends Service {
         }
         
         handler = new Handler(Looper.getMainLooper());
+        
+        // Register WebSocket receiver
+        IntentFilter webSocketFilter = new IntentFilter();
+        webSocketFilter.addAction("com.apkbilling.tv.TIME_ADDED");
+        webSocketFilter.addAction("com.apkbilling.tv.SESSION_STARTED");
+        webSocketFilter.addAction("com.apkbilling.tv.SESSION_ENDED");
+        webSocketFilter.addAction("com.apkbilling.tv.SESSION_EXPIRED");
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(webSocketReceiver, webSocketFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(webSocketReceiver, webSocketFilter);
+        }
+        Log.d(TAG, "🔌 WebSocket receiver registered in background service");
         
         // Ensure notification channel is created before starting foreground
         createNotificationChannel();
@@ -180,8 +227,32 @@ public class BillingBackgroundService extends Service {
                 } else if (isSessionActive && currentSession != null && 
                           session.session_id == currentSession.session_id) {
                     // Same session - sync remaining time with server
-                    Log.d(TAG, "Syncing session time with server: " + session.remaining_minutes + " minutes");
-                    remainingSeconds = session.remaining_minutes * 60;
+                    Log.d(TAG, "Syncing session time with server: " + session.remaining_minutes + " minutes (was: " + (remainingSeconds/60) + " minutes)");
+                    
+                    // Check if time was added
+                    int newRemainingSeconds = session.remaining_minutes * 60;
+                    if (newRemainingSeconds > remainingSeconds) {
+                        int addedMinutes = (newRemainingSeconds - remainingSeconds) / 60;
+                        Log.i(TAG, "✅ Time added detected in background: +" + addedMinutes + " minutes");
+                        
+                        // Send broadcast to MainActivity to show toast
+                        Intent toastIntent = new Intent("com.apkbilling.tv.SHOW_TOAST");
+                        toastIntent.putExtra("message", "⏰ Time added: +" + addedMinutes + " minutes");
+                        sendBroadcast(toastIntent);
+                        
+                        // Update notification
+                        updateNotification();
+                    }
+                    
+                    remainingSeconds = newRemainingSeconds;
+                    
+                    // Check if session is expired during sync
+                    if (remainingSeconds <= 0) {
+                        Log.w(TAG, "⚠️ Session expired during sync: " + remainingSeconds + " seconds");
+                        stopCurrentSession();
+                        return;
+                    }
+                    
                     currentSession = session; // Update session data
                 }
             }
@@ -211,8 +282,16 @@ public class BillingBackgroundService extends Service {
     }
     
     private void startExistingSession(ApiClient.SessionResponse session) {
-        currentSession = session;
         remainingSeconds = session.remaining_minutes * 60;
+        
+        // Check if session is already expired
+        if (remainingSeconds <= 0) {
+            Log.w(TAG, "⚠️ Cannot start existing session - already expired: " + remainingSeconds + " seconds");
+            stopCurrentSession();
+            return;
+        }
+        
+        currentSession = session;
         isSessionActive = true;
         
         Log.d(TAG, "Started existing session for device: " + session.customer_name + " - " + session.remaining_minutes + " minutes remaining");
@@ -399,6 +478,13 @@ public class BillingBackgroundService extends Service {
     public void onDestroy() {
         super.onDestroy();
         Log.d(TAG, "Background service destroyed");
+        
+        // Unregister WebSocket receiver
+        try {
+            unregisterReceiver(webSocketReceiver);
+        } catch (Exception e) {
+            Log.w(TAG, "WebSocket receiver not registered or already unregistered");
+        }
         
         if (handler != null) {
             if (sessionCheckRunnable != null) {

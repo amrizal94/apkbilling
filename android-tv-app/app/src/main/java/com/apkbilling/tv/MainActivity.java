@@ -22,8 +22,11 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import java.util.List;
 
+import org.json.JSONObject;
+
 import com.apkbilling.tv.services.BillingBackgroundService;
 import com.apkbilling.tv.services.NetworkMonitorService;
+import com.apkbilling.tv.services.WebSocketService;
 import com.apkbilling.tv.network.ApiClient;
 import com.apkbilling.tv.models.DeviceStatus;
 import com.apkbilling.tv.utils.SettingsManager;
@@ -51,11 +54,9 @@ public class MainActivity extends AppCompatActivity {
     private SettingsManager settingsManager;
     private boolean isBillingActive = false;
     
-    // Session and timer management
+    // Session management (server-controlled timing)
     private ApiClient.SessionResponse currentSession;
-    private Handler timerHandler;
-    private Runnable timerRunnable;
-    private int remainingSeconds = 0;
+    private String displayTime = "00:00:00"; // Display time from server events
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -64,7 +65,7 @@ public class MainActivity extends AppCompatActivity {
         
         initViews();
         initApiClient();
-        initTimer();
+        // Timer removed - using server-controlled timing
         setupClickListeners();
         checkOverlayPermission();
         
@@ -94,10 +95,7 @@ public class MainActivity extends AppCompatActivity {
                 Log.d(TAG, "Session was terminated by operator - customer trapped in billing app");
                 showToast("Session terminated - Wait for operator to start new session");
                 
-                // Clear any pending auto-exit operations
-                if (timerHandler != null) {
-                    timerHandler.removeCallbacksAndMessages(null);
-                }
+                // Session terminated by operator
                 
             } else if (intent.getBooleanExtra("kiosk_forced_return", false)) {
                 Log.d(TAG, "Forced return to billing app by kiosk service");
@@ -173,34 +171,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     
-    private void initTimer() {
-        timerHandler = new Handler(Looper.getMainLooper());
-        timerRunnable = new Runnable() {
-            @Override
-            public void run() {
-                if (remainingSeconds > 0) {
-                    remainingSeconds--;
-                    updateTimerDisplay();
-                    
-                    // Show warning when 5 minutes or less remaining
-                    if (remainingSeconds == 300) { // 5 minutes
-                        showToast("⚠️ 5 minutes remaining!");
-                    } else if (remainingSeconds == 60) { // 1 minute
-                        showToast("⚠️ 1 minute remaining!");
-                    } else if (remainingSeconds == 0) {
-                        // Time expired
-                        showToast("⏰ Time expired! Session ended.");
-                        onSessionExpired();
-                        return;
-                    }
-                    
-                    timerHandler.postDelayed(this, 1000);
-                } else {
-                    onSessionExpired();
-                }
-            }
-        };
-    }
+    // Timer removed - using server-controlled timing via WebSocket events
     
     private void checkForActiveSession() {
         String deviceId = settingsManager.getDeviceId();
@@ -218,7 +189,7 @@ public class MainActivity extends AppCompatActivity {
             public void onSuccess(ApiClient.SessionResponse session) {
                 Log.d(TAG, "Active session found: " + session.customer_name);
                 runOnUiThread(() -> {
-                    startSessionTimer(session);
+                    startSession(session);
                 });
             }
             
@@ -520,41 +491,29 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     
-    private void startSessionTimer(ApiClient.SessionResponse session) {
+    private void startSession(ApiClient.SessionResponse session) {
         currentSession = session;
         isBillingActive = true;
         
-        // Session is now active - real-time monitoring will detect changes
+        Log.d(TAG, "🟢 SESSION STARTED - Server will control timing, Android will listen for events");
         
-        // Calculate remaining time from backend response
-        if (session.remaining_minutes > 0) {
-            remainingSeconds = session.remaining_minutes * 60;
-        } else if (session.duration_minutes > 0 && session.elapsed_minutes >= 0) {
-            int remainingMinutes = session.duration_minutes - session.elapsed_minutes;
-            remainingSeconds = Math.max(0, remainingMinutes * 60);
-        } else {
-            remainingSeconds = session.duration_minutes * 60; // fallback
-        }
-        
-        // Update UI
+        // Update UI without local timer
         updateUI();
         showTimerCard(true);
         updateSessionInfo();
-        updateTimerDisplay();
         
-        // Start countdown
-        timerHandler.removeCallbacks(timerRunnable);
-        timerHandler.post(timerRunnable);
+        // Show initial time from server (will be updated via WebSocket events)
+        displayTime = formatTimeRemaining(session.remaining_minutes * 60);
+        updateTimerDisplay();
         
         // Stop return enforcement since session is now active
         stopReturnEnforcement();
-        Log.d(TAG, "🟢 SESSION STARTED - Return enforcement stopped, customer can access any app including billing app");
         
         // Notify background service about the session
         Intent backgroundIntent = new Intent(this, BillingBackgroundService.class);
         backgroundIntent.setAction("START_SESSION");
         backgroundIntent.putExtra("customer_name", session.customer_name);
-        backgroundIntent.putExtra("duration_minutes", remainingSeconds / 60);
+        backgroundIntent.putExtra("duration_minutes", session.duration_minutes);
         startService(backgroundIntent);
         
         // Notify kiosk service that session started (disable kiosk mode)
@@ -562,12 +521,11 @@ public class MainActivity extends AppCompatActivity {
         kioskIntent.setAction("SESSION_STARTED");
         startService(kioskIntent);
         
-        
         // Session started - auto-exit billing app so customer can use Netflix/PS4
         Log.d(TAG, "Session started - auto-exiting billing app for customer to use other apps");
         
         // Show toast to inform customer
-        showToast("✅ Session started! You can now use Netflix, PS4, etc. Time: " + formatTimeRemaining(remainingSeconds) + ". Return to billing app anytime to check timer.");
+        showToast("✅ Session started! Time will be managed by server. You can use Netflix, PS4, etc.");
         
         // Auto-exit billing app after 3 seconds delay
         Handler exitHandler = new Handler();
@@ -581,26 +539,18 @@ public class MainActivity extends AppCompatActivity {
             }
         }, 3000); // 3 second delay
         
-        Log.d(TAG, "Timer started with " + remainingSeconds + " seconds remaining");
+        Log.d(TAG, "Session started - timing controlled by server via WebSocket events");
     }
     
-    private void stopSessionTimer() {
-        // Clear all timer-related handlers and runnables
-        if (timerHandler != null) {
-            timerHandler.removeCallbacks(timerRunnable);
-            timerHandler.removeCallbacksAndMessages(null); // Clear all pending operations
-        }
-        
+    private void stopSession() {
         currentSession = null;
         isBillingActive = false;
-        remainingSeconds = 0;
-        
-        // Session ended - real-time monitoring will detect this change
+        displayTime = "00:00:00";
         
         updateUI();
         showTimerCard(false);
         
-        Log.d(TAG, "Session timer stopped and all handlers cleared");
+        Log.d(TAG, "Session stopped - server controlled timing ended");
         
         // Notify background service to stop
         Intent backgroundIntent = new Intent(this, BillingBackgroundService.class);
@@ -613,25 +563,14 @@ public class MainActivity extends AppCompatActivity {
         startService(kioskIntent);
         
         
-        Log.d(TAG, "Timer stopped");
+        Log.d(TAG, "Session stopped");
     }
     
     private void updateTimerDisplay() {
-        int hours = remainingSeconds / 3600;
-        int minutes = (remainingSeconds % 3600) / 60;
-        int seconds = remainingSeconds % 60;
+        tvTimer.setText(displayTime);
         
-        String timeString = String.format("%02d:%02d:%02d", hours, minutes, seconds);
-        tvTimer.setText(timeString);
-        
-        // Change color based on remaining time
-        if (remainingSeconds <= 300) { // 5 minutes or less
-            tvTimer.setTextColor(getColor(R.color.status_warning));
-        } else if (remainingSeconds <= 60) { // 1 minute or less
-            tvTimer.setTextColor(getColor(R.color.status_error));
-        } else {
-            tvTimer.setTextColor(getColor(R.color.status_active));
-        }
+        // Color will be controlled by server events (warnings, etc.)
+        tvTimer.setTextColor(getColor(R.color.status_active));
     }
     
     private void updateSessionInfo() {
@@ -652,37 +591,36 @@ public class MainActivity extends AppCompatActivity {
         
         // TODO: Send session end to server and show TV shutdown countdown
         
-        stopSessionTimer();
+        stopSession();
         
         // Session expired - customer will be brought to billing app via kiosk mode
     }
     
+    // Simplified session check - only for startup, no polling conflicts
     private void checkActiveSession() {
         String deviceId = settingsManager.getDeviceId();
         
         // Remove ATV_ prefix for session API calls - backend expects raw device ID
         String rawDeviceId = deviceId.startsWith("ATV_") ? deviceId.substring(4) : deviceId;
-        Log.d(TAG, "Checking for active session for device: " + deviceId + " (raw: " + rawDeviceId + ")");
+        Log.d(TAG, "One-time session check for device: " + deviceId + " (raw: " + rawDeviceId + ")");
         
         apiClient.getActiveSession(rawDeviceId, new ApiClient.SessionCallback() {
             @Override
             public void onSuccess(ApiClient.SessionResponse session) {
                 runOnUiThread(() -> {
-                    Log.d(TAG, "Active session found: " + session.customer_name);
+                    Log.d(TAG, "Found existing session: " + session.customer_name);
                     if (!isBillingActive) {
-                        startSessionTimer(session);
+                        // Start existing session
+                        startSession(session);
                     }
+                    // If already active, let WebSocket timer events handle updates
                 });
             }
             
             @Override
             public void onError(String error) {
-                runOnUiThread(() -> {
-                    Log.d(TAG, "No active session found: " + error);
-                    if (isBillingActive) {
-                        stopSessionTimer();
-                    }
-                });
+                Log.d(TAG, "No active session found: " + error);
+                // Normal situation - no session exists
             }
         });
     }
@@ -706,8 +644,9 @@ public class MainActivity extends AppCompatActivity {
         
         updateStatus();
         
-        // Always check for active session - no memory needed
-        checkActiveSession();
+        // Unified timing: Server WebSocket events will notify of active sessions
+        // Only check on startup via checkForActiveSession() in onCreate()
+        Log.d(TAG, "✅ Relying on server WebSocket events for session management");
         
         // Register toast receiver with proper flags for Android 13+
         IntentFilter toastFilter = new IntentFilter("com.apkbilling.tv.SHOW_TOAST");
@@ -717,9 +656,28 @@ public class MainActivity extends AppCompatActivity {
             registerReceiver(toastReceiver, toastFilter);
         }
         
-        // Start real-time session monitoring with shorter interval for better responsiveness
-        periodicHandler.removeCallbacks(sessionCheckRunnable);
-        periodicHandler.postDelayed(sessionCheckRunnable, 5000); // Check every 5 seconds for real-time feel
+        // Register WebSocket receiver
+        IntentFilter webSocketFilter = new IntentFilter();
+        webSocketFilter.addAction("com.apkbilling.tv.TIME_ADDED");
+        webSocketFilter.addAction("com.apkbilling.tv.SESSION_STARTED");
+        webSocketFilter.addAction("com.apkbilling.tv.SESSION_ENDED");
+        webSocketFilter.addAction("com.apkbilling.tv.SESSION_EXPIRED");
+        webSocketFilter.addAction("com.apkbilling.tv.TIMER_UPDATE");
+        webSocketFilter.addAction("com.apkbilling.tv.SESSION_WARNING");
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(webSocketReceiver, webSocketFilter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(webSocketReceiver, webSocketFilter);
+        }
+        
+        // Start WebSocket service
+        Intent webSocketIntent = new Intent(this, WebSocketService.class);
+        startService(webSocketIntent);
+        Log.d(TAG, "🔌 WebSocket service started");
+        
+        // Unified timing: No need for periodic polling - server WebSocket events control everything
+        Log.d(TAG, "✅ Server-controlled timing active - no periodic polling needed");
     }
     
     @Override
@@ -730,14 +688,20 @@ public class MainActivity extends AppCompatActivity {
         isAppCurrentlyVisible = false;
         Log.d(TAG, "App paused - marked as not visible (session active: " + isBillingActive + ")");
         
-        // Stop periodic session check when app is not visible
-        periodicHandler.removeCallbacks(sessionCheckRunnable);
+        // Unified timing: No periodic checks to stop
         
         // Unregister toast receiver
         try {
             unregisterReceiver(toastReceiver);
         } catch (Exception e) {
             Log.w(TAG, "Toast receiver not registered or already unregistered");
+        }
+        
+        // Unregister WebSocket receiver
+        try {
+            unregisterReceiver(webSocketReceiver);
+        } catch (Exception e) {
+            Log.w(TAG, "WebSocket receiver not registered or already unregistered");
         }
         
         // Start return enforcement to monitor - only enforce if no active session
@@ -749,15 +713,8 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     
-    private final Handler periodicHandler = new Handler();
-    private final Runnable sessionCheckRunnable = new Runnable() {
-        @Override
-        public void run() {
-            checkActiveSession();
-            // Real-time monitoring: check every 5 seconds when app is visible
-            periodicHandler.postDelayed(this, 5000);
-        }
-    };
+    // Removed: periodicHandler - not needed with server-controlled timing
+    // Removed: sessionCheckRunnable - using server WebSocket events instead
     
     // Kiosk mode variables
     private boolean kioskModeEnabled; // Will be loaded from settings
@@ -778,6 +735,100 @@ public class MainActivity extends AppCompatActivity {
                 String message = intent.getStringExtra("message");
                 if (message != null) {
                     showToast(message);
+                }
+            }
+        }
+    };
+
+    private BroadcastReceiver webSocketReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            
+            if ("com.apkbilling.tv.TIME_ADDED".equals(action)) {
+                int addedMinutes = intent.getIntExtra("additional_minutes", 0);
+                int newDuration = intent.getIntExtra("new_duration", 0);
+                String deviceName = intent.getStringExtra("device_name");
+                
+                Log.i(TAG, "🔔 WebSocket: Time added +" + addedMinutes + " minutes to " + deviceName);
+                showToast("⏰ Time added: +" + addedMinutes + " minutes");
+                
+                // Update display time immediately from server event
+                displayTime = formatTimeRemaining(newDuration * 60);
+                updateTimerDisplay();
+                
+            } else if ("com.apkbilling.tv.TIMER_UPDATE".equals(action)) {
+                // New event for server timer updates
+                int remainingMinutes = intent.getIntExtra("remaining_minutes", 0);
+                String timeString = intent.getStringExtra("time_display");
+                
+                if (timeString != null) {
+                    displayTime = timeString;
+                } else {
+                    displayTime = formatTimeRemaining(remainingMinutes * 60);
+                }
+                updateTimerDisplay();
+                
+            } else if ("com.apkbilling.tv.SESSION_WARNING".equals(action)) {
+                // Server-controlled warnings
+                String warningMessage = intent.getStringExtra("message");
+                if (warningMessage != null) {
+                    showToast(warningMessage);
+                    // Change timer color to warning
+                    tvTimer.setTextColor(getColor(R.color.status_warning));
+                }
+                
+            } else if ("com.apkbilling.tv.SESSION_STARTED".equals(action)) {
+                Log.i(TAG, "🔔 WebSocket: Session started remotely");
+                
+                // Parse session data from WebSocket event
+                String sessionDataStr = intent.getStringExtra("session_data");
+                if (sessionDataStr != null) {
+                    try {
+                        Log.d(TAG, "Processing session data: " + sessionDataStr);
+                        JSONObject sessionData = new JSONObject(sessionDataStr);
+                        
+                        // Create session response from WebSocket data
+                        ApiClient.SessionResponse session = new ApiClient.SessionResponse();
+                        session.session_id = sessionData.optInt("session_id", 0);
+                        session.device_id = sessionData.optInt("db_device_id", 0);
+                        session.customer_name = sessionData.optString("customer_name", "Remote Session");
+                        
+                        // Get package data
+                        JSONObject packageData = sessionData.optJSONObject("package");
+                        if (packageData != null) {
+                            session.duration_minutes = packageData.optInt("duration_minutes", 0);
+                            session.remaining_minutes = session.duration_minutes; // Start with full duration
+                        }
+                        
+                        session.status = "active";
+                        session.start_time = sessionData.optString("timestamp", "");
+                        
+                        Log.i(TAG, "🚀 Starting session from WebSocket: " + session.customer_name + " (" + session.duration_minutes + " minutes)");
+                        
+                        // Start the session
+                        startSession(session);
+                        
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error processing WebSocket session data", e);
+                        // Fallback: try to get active session from server
+                        checkActiveSession();
+                    }
+                } else {
+                    Log.w(TAG, "No session data in WebSocket event, checking server for active session");
+                    checkActiveSession();
+                }
+                
+            } else if ("com.apkbilling.tv.SESSION_ENDED".equals(action)) {
+                Log.i(TAG, "🔔 WebSocket: Session ended remotely");
+                if (isBillingActive) {
+                    onSessionExpired();
+                }
+                
+            } else if ("com.apkbilling.tv.SESSION_EXPIRED".equals(action)) {
+                Log.w(TAG, "🔔 WebSocket: Session expired remotely");
+                if (isBillingActive) {
+                    onSessionExpired();
                 }
             }
         }
