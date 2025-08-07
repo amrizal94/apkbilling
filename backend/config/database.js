@@ -48,6 +48,11 @@ pool.execute = async (text, params) => {
     }
 };
 
+// Add getClient method for transaction support
+pool.getClient = async () => {
+    return await pool.connect();
+};
+
 // Initialize connection test
 testConnection();
 

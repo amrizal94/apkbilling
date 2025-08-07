@@ -85,9 +85,9 @@ async function testDataRetrieval() {
         
         const db = require('./config/database');
         
-        // Test billing packages
-        const [packages] = await db.execute('SELECT COUNT(*) as count FROM billing_packages');
-        console.log(`   Billing Packages: ${packages[0].count} records`);
+        // Test packages
+        const [packages] = await db.execute('SELECT COUNT(*) as count FROM packages');
+        console.log(`   Packages: ${packages[0].count} records`);
         
         // Test products
         const [products] = await db.execute('SELECT COUNT(*) as count FROM products');

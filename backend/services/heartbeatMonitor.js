@@ -5,7 +5,7 @@ const db = require('../config/database');
 
 class HeartbeatMonitor {
     constructor(io = null) {
-        this.checkInterval = 60000; // Check every 1 minute
+        this.checkInterval = 15000; // Check every 15 seconds for faster detection
         this.intervalId = null;
         this.io = io; // WebSocket instance for notifications
         this.timezone = process.env.TIMEZONE || 'Asia/Jakarta';
@@ -25,6 +25,7 @@ class HeartbeatMonitor {
         }, this.checkInterval);
         
         console.log('✅ Heartbeat monitor started, checking every', this.checkInterval / 1000, 'seconds');
+        console.log('📡 Device offline threshold: 45 seconds without heartbeat');
     }
 
     stop() {
@@ -44,7 +45,7 @@ class HeartbeatMonitor {
                 JOIN tv_sessions s ON d.id = s.device_id
                 WHERE s.status = 'active' 
                 AND s.paused_at IS NULL
-                AND (d.last_heartbeat IS NULL OR d.last_heartbeat < CURRENT_TIMESTAMP - INTERVAL '2 minutes')
+                AND (d.last_heartbeat IS NULL OR d.last_heartbeat < CURRENT_TIMESTAMP - INTERVAL '45 seconds')
             `);
             
             let pausedSessions = 0;
@@ -84,7 +85,7 @@ class HeartbeatMonitor {
                 SELECT id, device_name, device_id, status, last_heartbeat,
                        EXTRACT(EPOCH FROM (NOW() - last_heartbeat))/60 as minutes_since_heartbeat
                 FROM tv_devices 
-                WHERE (last_heartbeat IS NULL OR last_heartbeat < NOW() - INTERVAL '2 minutes')
+                WHERE (last_heartbeat IS NULL OR last_heartbeat < NOW() - INTERVAL '45 seconds')
                 AND status != 'offline'
             `);
             
@@ -110,6 +111,7 @@ class HeartbeatMonitor {
                 
                 // Emit WebSocket notification for status change
                 if (this.io) {
+                    console.log(`📡 Emitting device_status_changed: ${device.device_name} → offline`);
                     this.io.emit('device_status_changed', {
                         device_id: device.device_id,
                         device_name: device.device_name,

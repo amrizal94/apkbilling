@@ -1,25 +1,48 @@
-FROM node:18-alpine
-
-WORKDIR /app
+# Multi-stage Dockerfile for development
+FROM node:18-alpine as base
 
 # Install system dependencies
-RUN apk add --no-cache curl
+RUN apk add --no-cache \
+    curl \
+    git \
+    python3 \
+    make \
+    g++
+
+WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
 # Install dependencies (including dev dependencies)
-RUN npm install
+RUN npm ci
+
+# Development stage
+FROM base as development
+
+# Install nodemon globally for hot reloading
+RUN npm install -g nodemon
+
+# Copy source code
+COPY . .
 
 # Create necessary directories
-RUN mkdir -p uploads logs
+RUN mkdir -p uploads logs src/infrastructure/database/migrations
 
-# Expose port
-EXPOSE 3000
+# Create non-root user
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
+# Change ownership
+RUN chown -R nodejs:nodejs /app
+USER nodejs
+
+# Expose port and debugger port
+EXPOSE 3000 9229
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:3000/api/health || exit 1
 
-# Development command (will be overridden by docker-compose)
-CMD ["npm", "run", "dev"]
+# Start application with hot reload and debugging
+CMD ["nodemon", "--inspect=0.0.0.0:9229", "src/server.js"]

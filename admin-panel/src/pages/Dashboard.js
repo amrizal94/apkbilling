@@ -25,6 +25,7 @@ import {
   TrendingUp as TrendingUpIcon,
   Schedule as ScheduleIcon,
   Inventory as InventoryIcon,
+  ShoppingCart as ShoppingCartIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useSocket } from '../contexts/SocketContext';
@@ -64,7 +65,7 @@ const StatCard = ({ title, value, icon, color = 'primary', subtitle, loading }) 
 );
 
 export default function Dashboard() {
-  const { activeSessions, pendingOrders } = useSocket();
+  const { activeSessions, pendingOrders, pendingPurchaseOrders } = useSocket();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -131,9 +132,9 @@ export default function Dashboard() {
         
         <Grid item xs={12} sm={6} md={3}>
           <StatCard
-            title="Pending Orders"
-            value={pendingOrders.length}
-            subtitle={`${dashboardData?.pos_system?.total_orders || 0} total today`}
+            title="F&B Orders"
+            value={`${(dashboardData?.fnb_combined?.total_orders || 0)}`}
+            subtitle={`${dashboardData?.pos_system?.total_orders || 0} POS + ${dashboardData?.session_orders?.total_orders || 0} Gaming`}
             icon={<PosIcon />}
             color="warning"
             loading={loading}
@@ -143,8 +144,8 @@ export default function Dashboard() {
         <Grid item xs={12} sm={6} md={3}>
           <StatCard
             title="Today's Revenue"
-            value={formatCurrency((dashboardData?.tv_billing?.revenue || 0) + (dashboardData?.pos_system?.revenue || 0))}
-            subtitle="TV + POS Combined"
+            value={formatCurrency((dashboardData?.tv_billing?.revenue || 0) + (dashboardData?.fnb_combined?.total_revenue || 0))}
+            subtitle="TV + F&B Combined"
             icon={<MoneyIcon />}
             color="success"
             loading={loading}
@@ -197,14 +198,17 @@ export default function Dashboard() {
             <CardContent>
               <Typography variant="h6" gutterBottom display="flex" alignItems="center">
                 <PosIcon sx={{ mr: 1 }} />
-                POS Sales Today
+                F&B Sales Today
               </Typography>
               <Box sx={{ mb: 2 }}>
                 <Typography variant="h4" color="success.main">
-                  {formatCurrency(dashboardData?.pos_system?.revenue || 0)}
+                  {formatCurrency(dashboardData?.fnb_combined?.total_revenue || 0)}
                 </Typography>
                 <Typography color="textSecondary">
-                  From {dashboardData?.pos_system?.total_orders || 0} orders
+                  From {dashboardData?.fnb_combined?.total_orders || 0} orders total
+                </Typography>
+                <Typography variant="body2" color="textSecondary">
+                  ({dashboardData?.pos_system?.total_orders || 0} POS + {dashboardData?.session_orders?.total_orders || 0} Gaming)
                 </Typography>
               </Box>
               <LinearProgress
@@ -290,21 +294,21 @@ export default function Dashboard() {
                 </>
               )}
 
-              {/* Pending Orders */}
+              {/* Pending POS Orders */}
               {pendingOrders.length > 0 && (
                 <>
                   <Typography variant="subtitle2" color="warning.main" gutterBottom>
-                    Pending Orders:
+                    Pending POS Orders:
                   </Typography>
                   <List dense>
                     {pendingOrders.slice(0, 3).map((order) => (
-                      <ListItem key={order.id}>
+                      <ListItem key={`pos-${order.id}`}>
                         <ListItemIcon>
                           <PosIcon color="warning" />
                         </ListItemIcon>
                         <ListItemText
                           primary={`${order.order_number} - ${order.customer_name || 'Walk-in'}`}
-                          secondary={`Table ${order.table_number} - ${order.item_count} items`}
+                          secondary={`Table ${order.table_number || 'undefined'} - ${order.item_count} items`}
                         />
                         <Chip
                           size="small"
@@ -314,10 +318,38 @@ export default function Dashboard() {
                       </ListItem>
                     ))}
                   </List>
+                  {pendingPurchaseOrders.length > 0 && <Divider sx={{ my: 1 }} />}
                 </>
               )}
 
-              {dashboardData?.alerts?.low_stock_products?.length === 0 && pendingOrders.length === 0 && (
+              {/* Pending Purchase Orders */}
+              {pendingPurchaseOrders.length > 0 && (
+                <>
+                  <Typography variant="subtitle2" color="error.main" gutterBottom>
+                    Pending Purchase Orders:
+                  </Typography>
+                  <List dense>
+                    {pendingPurchaseOrders.slice(0, 3).map((order) => (
+                      <ListItem key={`purchase-${order.id}`}>
+                        <ListItemIcon>
+                          <ShoppingCartIcon color="error" />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={`${order.po_number} - ${order.supplier_name}`}
+                          secondary={`${order.item_count} items - ${new Intl.NumberFormat('id-ID', {style: 'currency', currency: 'IDR'}).format(order.total_amount || 0)}`}
+                        />
+                        <Chip
+                          size="small"
+                          label="pending"
+                          color="error"
+                        />
+                      </ListItem>
+                    ))}
+                  </List>
+                </>
+              )}
+
+              {dashboardData?.alerts?.low_stock_products?.length === 0 && pendingOrders.length === 0 && pendingPurchaseOrders.length === 0 && (
                 <Typography color="textSecondary">
                   No alerts at this time
                 </Typography>

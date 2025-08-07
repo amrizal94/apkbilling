@@ -95,6 +95,30 @@ export default function Settings() {
     }
   };
 
+  const handleBackup = async () => {
+    try {
+      const response = await axios.post('/settings/backup');
+      if (response.data.success) {
+        // Download backup file
+        const backupData = JSON.stringify(response.data.data, null, 2);
+        const blob = new Blob([backupData], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `apkbilling-backup-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        
+        toast.success('Database backup created successfully');
+      }
+    } catch (error) {
+      const message = error.response?.data?.message || 'Failed to create backup';
+      toast.error(message);
+    }
+  };
+
   const formatBytes = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -156,6 +180,7 @@ export default function Settings() {
             <Tab label="System Config" />
             <Tab label="Network & WiFi" />
             <Tab label="System Info" />
+            <Tab label="Maintenance" />
           </Tabs>
         </Box>
 
@@ -375,22 +400,22 @@ export default function Settings() {
                       Application Info
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Name:</strong> {systemInfo.application.name}
+                      <strong>Name:</strong> {systemInfo.application?.name || 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Version:</strong> {systemInfo.application.version}
+                      <strong>Version:</strong> {systemInfo.application?.version || 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Environment:</strong> {systemInfo.application.environment}
+                      <strong>Environment:</strong> {systemInfo.application?.environment || 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Platform:</strong> {systemInfo.application.platform}
+                      <strong>Platform:</strong> {systemInfo.application?.platform || 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Node.js:</strong> {systemInfo.application.node_version}
+                      <strong>Node.js:</strong> {systemInfo.application?.node_version || 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Uptime:</strong> {formatUptime(systemInfo.application.uptime)}
+                      <strong>Uptime:</strong> {systemInfo.application?.uptime ? formatUptime(systemInfo.application.uptime) : 'N/A'}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -402,16 +427,16 @@ export default function Settings() {
                       Memory Usage
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>RSS:</strong> {formatBytes(systemInfo.application.memory_usage.rss)}
+                      <strong>RSS:</strong> {systemInfo.application?.memory_usage?.rss ? formatBytes(systemInfo.application.memory_usage.rss) : 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Heap Total:</strong> {formatBytes(systemInfo.application.memory_usage.heapTotal)}
+                      <strong>Heap Total:</strong> {systemInfo.application?.memory_usage?.heapTotal ? formatBytes(systemInfo.application.memory_usage.heapTotal) : 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Heap Used:</strong> {formatBytes(systemInfo.application.memory_usage.heapUsed)}
+                      <strong>Heap Used:</strong> {systemInfo.application?.memory_usage?.heapUsed ? formatBytes(systemInfo.application.memory_usage.heapUsed) : 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>External:</strong> {formatBytes(systemInfo.application.memory_usage.external)}
+                      <strong>External:</strong> {systemInfo.application?.memory_usage?.external ? formatBytes(systemInfo.application.memory_usage.external) : 'N/A'}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -423,19 +448,19 @@ export default function Settings() {
                       Database Info
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Version:</strong> {systemInfo.database.version.split(' ').slice(0, 2).join(' ')}
+                      <strong>Version:</strong> {systemInfo.database?.version ? systemInfo.database.version.split(' ').slice(0, 2).join(' ') : 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Total Devices:</strong> {systemInfo.database.statistics.total_devices}
+                      <strong>Total Devices:</strong> {systemInfo.database?.statistics?.total_devices || 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Active Sessions:</strong> {systemInfo.database.statistics.active_sessions}
+                      <strong>Active Sessions:</strong> {systemInfo.database?.statistics?.active_sessions || 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Pending Orders:</strong> {systemInfo.database.statistics.pending_orders}
+                      <strong>Pending Orders:</strong> {systemInfo.database?.statistics?.pending_orders || 'N/A'}
                     </Typography>
                     <Typography variant="body2" paragraph>
-                      <strong>Low Stock Items:</strong> {systemInfo.database.statistics.low_stock_items}
+                      <strong>Low Stock Items:</strong> {systemInfo.database?.statistics?.low_stock_items || 'N/A'}
                     </Typography>
                   </CardContent>
                 </Card>
@@ -446,6 +471,61 @@ export default function Settings() {
               <CircularProgress />
             </Box>
           )}
+        </TabPanel>
+
+        {/* Maintenance Tab */}
+        <TabPanel value={tabValue} index={4}>
+          <Grid container spacing={3}>
+            <Grid item xs={12}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Database Backup
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary" paragraph>
+                    Create a backup of all system data including orders, sessions, products, and settings.
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    color="primary"
+                    onClick={handleBackup}
+                    startIcon={<SaveIcon />}
+                  >
+                    Create Backup
+                  </Button>
+                </CardContent>
+              </Card>
+            </Grid>
+            
+            <Grid item xs={12}>
+              <Card variant="outlined">
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    System Health
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary" paragraph>
+                    Monitor system performance and connectivity status.
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    onClick={fetchSystemInfo}
+                    startIcon={<RefreshIcon />}
+                  >
+                    Check System Health
+                  </Button>
+                </CardContent>
+              </Card>
+            </Grid>
+
+            <Grid item xs={12}>
+              <Alert severity="warning">
+                <Typography variant="body2">
+                  <strong>Warning:</strong> Backup operations may temporarily affect system performance. 
+                  It's recommended to perform backups during low-traffic periods.
+                </Typography>
+              </Alert>
+            </Grid>
+          </Grid>
         </TabPanel>
       </Card>
     </Box>

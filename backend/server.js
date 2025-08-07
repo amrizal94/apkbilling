@@ -23,7 +23,36 @@ const io = socketIo(server, {
 
 // Middleware
 app.use(cors());
-app.use(express.json());
+
+// Enhanced JSON parser with error handling for heartbeat issues
+app.use(express.json({
+    verify: (req, res, buf) => {
+        // Store raw body for debugging JSON parse errors
+        req.rawBody = buf;
+    }
+}));
+
+// JSON parse error handler - must be after express.json()
+app.use((error, req, res, next) => {
+    if (error instanceof SyntaxError && error.status === 400 && 'body' in error) {
+        console.error('❌ JSON Parse Error:', {
+            url: req.url,
+            method: req.method,
+            contentType: req.headers['content-type'],
+            userAgent: req.headers['user-agent'],
+            rawBody: req.rawBody?.toString('utf8')?.substring(0, 200),
+            error: error.message
+        });
+        
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid JSON format',
+            error: 'Bad JSON syntax - check for control characters'
+        });
+    }
+    next(error);
+});
+
 app.use(express.urlencoded({ extended: true }));
 
 // Static files untuk upload
@@ -50,10 +79,19 @@ app.use('/api/packages', require('./routes/packages'));
 const tvRoutes = require('./routes/tv');
 tvRoutes.setSocketIO(io);
 app.use('/api/tv', tvRoutes);
+app.use('/tv', tvRoutes); // Additional route for frontend compatibility
 
 app.use('/api/pos', require('./routes/pos'));
 app.use('/api/reports', require('./routes/reports'));
 app.use('/api/settings', require('./routes/settings'));
+app.use('/api/suppliers', require('./routes/suppliers'));
+
+// Purchase routes with socket injection
+const purchaseRoutes = require('./routes/purchases');
+purchaseRoutes.setSocketIO(io);
+app.use('/api/purchases', purchaseRoutes);
+
+app.use('/api/users', require('./routes/users'));
 
 // WebSocket handling
 const socketHandler = require('./sockets/socketHandler');

@@ -16,20 +16,23 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Get user from database
-        const [users] = await db.execute(
-            'SELECT id, username, password_hash, full_name, role, is_active FROM users WHERE username = $1',
-            [username]
-        );
+        // Get user from database with role information
+        const result = await db.query(`
+            SELECT u.id, u.username, u.password, u.full_name, u.is_active,
+                   r.role_name, r.role_description, r.permissions
+            FROM users u
+            LEFT JOIN roles r ON u.role_id = r.id
+            WHERE u.username = $1
+        `, [username]);
 
-        if (users.length === 0) {
+        if (result.rows.length === 0) {
             return res.status(401).json({
                 success: false,
                 message: 'Invalid credentials'
             });
         }
 
-        const user = users[0];
+        const user = result.rows[0];
 
         if (!user.is_active) {
             return res.status(401).json({
@@ -39,7 +42,7 @@ router.post('/login', async (req, res) => {
         }
 
         // Verify password
-        const isValidPassword = await bcrypt.compare(password, user.password_hash);
+        const isValidPassword = await bcrypt.compare(password, user.password);
 
         if (!isValidPassword) {
             return res.status(401).json({
@@ -53,7 +56,7 @@ router.post('/login', async (req, res) => {
             id: user.id,
             username: user.username,
             full_name: user.full_name,
-            role: user.role
+            role_name: user.role_name
         };
 
         const token = jwt.sign(
@@ -63,8 +66,8 @@ router.post('/login', async (req, res) => {
         );
 
         // Update last login
-        await db.execute(
-            'UPDATE users SET last_login = NOW() WHERE id = $1',
+        await db.query(
+            'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
             [user.id]
         );
 
@@ -76,7 +79,9 @@ router.post('/login', async (req, res) => {
                     id: user.id,
                     username: user.username,
                     full_name: user.full_name,
-                    role: user.role
+                    role_name: user.role_name,
+                    role_description: user.role_description,
+                    permissions: user.permissions
                 },
                 token
             }
@@ -94,12 +99,15 @@ router.post('/login', async (req, res) => {
 // Get current user profile
 router.get('/profile', require('../middleware/auth'), async (req, res) => {
     try {
-        const [users] = await db.execute(
-            'SELECT id, username, full_name, role, last_login, created_at FROM users WHERE id = $1',
-            [req.user.id]
-        );
+        const result = await db.query(`
+            SELECT u.id, u.username, u.full_name, u.last_login, u.created_at, u.is_active,
+                   r.role_name, r.role_description, r.permissions
+            FROM users u
+            LEFT JOIN roles r ON u.role_id = r.id
+            WHERE u.id = $1
+        `, [req.user.id]);
 
-        if (users.length === 0) {
+        if (result.rows.length === 0) {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
@@ -108,7 +116,7 @@ router.get('/profile', require('../middleware/auth'), async (req, res) => {
 
         res.json({
             success: true,
-            data: users[0]
+            data: result.rows[0]
         });
 
     } catch (error) {
@@ -133,12 +141,12 @@ router.post('/change-password', require('../middleware/auth'), async (req, res) 
         }
 
         // Get current user
-        const [users] = await db.execute(
-            'SELECT password_hash FROM users WHERE id = $1',
+        const result = await db.query(
+            'SELECT password FROM users WHERE id = $1',
             [req.user.id]
         );
 
-        if (users.length === 0) {
+        if (result.rows.length === 0) {
             return res.status(404).json({
                 success: false,
                 message: 'User not found'
@@ -146,7 +154,7 @@ router.post('/change-password', require('../middleware/auth'), async (req, res) 
         }
 
         // Verify current password
-        const isValidPassword = await bcrypt.compare(current_password, users[0].password_hash);
+        const isValidPassword = await bcrypt.compare(current_password, result.rows[0].password);
 
         if (!isValidPassword) {
             return res.status(401).json({
@@ -160,8 +168,8 @@ router.post('/change-password', require('../middleware/auth'), async (req, res) 
         const newPasswordHash = await bcrypt.hash(new_password, saltRounds);
 
         // Update password
-        await db.execute(
-            'UPDATE users SET password_hash = $1 WHERE id = $2',
+        await db.query(
+            'UPDATE users SET password = $1 WHERE id = $2',
             [newPasswordHash, req.user.id]
         );
 

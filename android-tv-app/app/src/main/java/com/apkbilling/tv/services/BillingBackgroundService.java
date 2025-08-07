@@ -37,7 +37,7 @@ public class BillingBackgroundService extends Service {
     private int remainingSeconds = 0;
     private boolean isSessionActive = false;
     
-    private static final int HEARTBEAT_INTERVAL = 30000; // 30 seconds
+    private static final int HEARTBEAT_INTERVAL = 15000; // 15 seconds for faster detection
     private long lastToastTime = 0; // Prevent toast spam from service
     
     private BroadcastReceiver webSocketReceiver = new BroadcastReceiver() {
@@ -232,16 +232,23 @@ public class BillingBackgroundService extends Service {
                     // Check if time was added
                     int newRemainingSeconds = session.remaining_minutes * 60;
                     if (newRemainingSeconds > remainingSeconds) {
-                        int addedMinutes = (newRemainingSeconds - remainingSeconds) / 60;
-                        Log.i(TAG, "✅ Time added detected in background: +" + addedMinutes + " minutes");
+                        int addedSeconds = newRemainingSeconds - remainingSeconds;
+                        int addedMinutes = addedSeconds / 60;
                         
-                        // Send broadcast to MainActivity to show toast
-                        Intent toastIntent = new Intent("com.apkbilling.tv.SHOW_TOAST");
-                        toastIntent.putExtra("message", "⏰ Time added: +" + addedMinutes + " minutes");
-                        sendBroadcast(toastIntent);
-                        
-                        // Update notification
-                        updateNotification();
+                        // Only show notification if meaningful time was added (at least 1 minute)
+                        if (addedMinutes > 0) {
+                            Log.i(TAG, "✅ Time added detected in background: +" + addedMinutes + " minutes");
+                            
+                            // Send broadcast to MainActivity to show toast
+                            Intent toastIntent = new Intent("com.apkbilling.tv.SHOW_TOAST");
+                            toastIntent.putExtra("message", "⏰ Time added: +" + addedMinutes + " minutes");
+                            sendBroadcast(toastIntent);
+                            
+                            // Update notification
+                            updateNotification();
+                        } else {
+                            Log.d(TAG, "Minor time sync detected: +" + addedSeconds + " seconds (not showing notification)");
+                        }
                     }
                     
                     remainingSeconds = newRemainingSeconds;

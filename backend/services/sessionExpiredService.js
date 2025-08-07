@@ -83,10 +83,10 @@ class SessionExpiredService {
                 overdue: `${overdueMinutes} minutes`
             });
 
-            // Stop the expired session by marking it as completed
+            // Stop the expired session by marking it as pending payment
             const [, result] = await db.execute(`
                 UPDATE tv_sessions 
-                SET status = 'completed', 
+                SET status = 'pending_payment', 
                     end_time = CURRENT_TIMESTAMP
                 WHERE id = $1
             `, [session.id]);

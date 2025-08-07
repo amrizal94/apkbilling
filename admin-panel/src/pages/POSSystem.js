@@ -32,19 +32,24 @@ import {
   Receipt as ReceiptIcon,
   Clear as ClearIcon,
   Search as SearchIcon,
+  Assignment as OrderIcon,
+  CheckCircle as CompleteIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 import { useSocket } from '../contexts/SocketContext';
 import toast from 'react-hot-toast';
+import { triggerCompleteNotification } from '../utils/notificationUtils';
 
 export default function POSSystem() {
-  const { emitNewOrder } = useSocket();
+  const { emitNewOrder, emitOrderStatusUpdate, socket, connected, setPendingOrders: setGlobalPendingOrders } = useSocket();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [cart, setCart] = useState([]);
   const [selectedCategory, setSelectedCategory] = useState(0);
   const [searchQuery, setSearchQuery] = useState('');
   const [checkoutDialog, setCheckoutDialog] = useState(false);
+  const [pendingOrdersDialog, setPendingOrdersDialog] = useState(false);
+  const [pendingOrders, setPendingOrders] = useState([]);
   const [orderForm, setOrderForm] = useState({
     customer_name: '',
     table_number: '',
@@ -55,6 +60,7 @@ export default function POSSystem() {
   useEffect(() => {
     fetchCategories();
     fetchProducts();
+    fetchPendingOrders();
   }, []);
 
   const fetchCategories = async () => {
@@ -82,12 +88,48 @@ export default function POSSystem() {
     }
   };
 
+  const fetchPendingOrders = async () => {
+    try {
+      const response = await axios.get('/pos/orders', { 
+        params: { 
+          status: 'pending',
+          limit: 20 
+        } 
+      });
+      if (response.data.success) {
+        setPendingOrders(response.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch pending orders:', error);
+    }
+  };
+
   useEffect(() => {
     fetchProducts();
   }, [selectedCategory]);
 
   const addToCart = (product) => {
+    // Check stock quantity first
+    if ((product.stock_quantity || 0) <= 0) {
+      toast.error(`${product.product_name || product.name || 'Product'} is out of stock!`);
+      return;
+    }
+    
+    // Check is_available only if it exists (some products might not have this field)
+    if (product.is_available !== undefined && !product.is_available) {
+      toast.error(`${product.product_name || product.name || 'Product'} is not available for sale!`);
+      return;
+    }
+
     const existingItem = cart.find(item => item.id === product.id);
+    
+    // Check if adding would exceed available stock
+    const newQuantity = existingItem ? existingItem.quantity + 1 : 1;
+    if (newQuantity > product.stock_quantity) {
+      toast.error(`Only ${product.stock_quantity} ${product.product_name || product.name || 'items'} available in stock!`);
+      return;
+    }
+
     if (existingItem) {
       setCart(cart.map(item =>
         item.id === product.id
@@ -97,7 +139,7 @@ export default function POSSystem() {
     } else {
       setCart([...cart, { ...product, quantity: 1 }]);
     }
-    toast.success(`${product.product_name} added to cart`);
+    toast.success(`${product.product_name || product.name || 'Product'} added to cart`);
   };
 
   const removeFromCart = (productId) => {
@@ -129,12 +171,14 @@ export default function POSSystem() {
   const handleCheckout = async () => {
     try {
       const orderData = {
-        customer_name: orderForm.customer_name,
-        table_number: orderForm.table_number,
+        customer_name: orderForm.customer_name || 'Anonymous',
+        table_number: orderForm.table_number || '0',
         order_type: orderForm.order_type,
         items: cart.map(item => ({
           product_id: item.id,
+          product_name: item.product_name || item.name || 'Unknown Product',
           quantity: item.quantity,
+          unit_price: item.price,
           notes: item.notes || '',
         })),
       };
@@ -143,19 +187,35 @@ export default function POSSystem() {
       if (response.data.success) {
         toast.success(`Order ${response.data.data.order_number} created successfully!`);
         
-        // Emit new order event
-        emitNewOrder({
+        // Prepare new order data
+        const newOrderData = {
+          id: response.data.data.id,
           order_number: response.data.data.order_number,
-          customer_name: orderForm.customer_name,
-          table_number: orderForm.table_number,
+          customer_name: orderForm.customer_name || 'Anonymous',
+          table_number: orderForm.table_number || '0',
           total_amount: response.data.data.total_amount,
           item_count: getTotalItems(),
+          status: 'pending',
+          created_at: new Date().toISOString()
+        };
+
+        // Emit new order event
+        emitNewOrder(newOrderData);
+
+        // Immediately add to global pending orders
+        setGlobalPendingOrders(prev => {
+          const updated = [...prev, newOrderData];
+          console.log(`🔄 Immediately added new order to global pending orders: ${updated.length} total`);
+          return updated;
         });
 
         // Reset form and cart
         setCart([]);
         setOrderForm({ customer_name: '', table_number: '', order_type: 'dine_in' });
         setCheckoutDialog(false);
+        
+        // Refresh pending orders from server for consistency
+        fetchPendingOrders();
       }
     } catch (error) {
       const message = error.response?.data?.message || 'Failed to create order';
@@ -163,10 +223,80 @@ export default function POSSystem() {
     }
   };
 
-  const filteredProducts = products.filter(product =>
-    product.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.category_name.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const handleCompleteOrder = async (orderId) => {
+    try {
+      const response = await axios.put(`/pos/orders/${orderId}/status`, { status: 'completed' });
+      
+      // Trigger interactive notification for order completion
+      const toastMessage = triggerCompleteNotification('order_completed', {
+        order_number: response.data.data?.order_number || `Order #${orderId}`
+      });
+      toast.success(toastMessage);
+      
+      // Emit order completed event for real-time updates
+      if (emitOrderStatusUpdate) {
+        emitOrderStatusUpdate({
+          order_id: orderId,
+          new_status: 'completed',
+          order_number: response.data.data?.order_number || `Order #${orderId}`
+        });
+      }
+
+      // Also emit generic order_completed event
+      if (socket && connected) {
+        socket.emit('order_completed', {
+          order_id: orderId,
+          order_number: response.data.data?.order_number || `Order #${orderId}`
+        });
+      }
+      
+      // Check for low stock after order completion and refresh products
+      fetchProducts().then(() => {
+        // Check if any products are low on stock (threshold: 10)
+        const lowStockProducts = products.filter(product => 
+          product.stock_quantity <= 10 && product.stock_quantity > 0
+        );
+        
+        lowStockProducts.forEach(product => {
+          if (socket && connected) {
+            socket.emit('low_stock_alert', {
+              product_name: product.name || product.product_name,
+              stock_quantity: product.stock_quantity
+            });
+          }
+        });
+      });
+      
+      // Immediate global state update for bell notification (don't wait for fetch)
+      setGlobalPendingOrders(prev => {
+        const updated = prev.filter(order => order.id !== orderId);
+        console.log(`🔄 Immediately updated global pending orders: ${updated.length} remaining`);
+        return updated;
+      });
+      
+      // Also update local state
+      setPendingOrders(prev => {
+        const updated = prev.filter(order => order.id !== orderId);
+        console.log(`🔄 Immediately updated local pending orders: ${updated.length} remaining`);
+        return updated;
+      });
+      
+      // Also refresh from server for consistency
+      fetchPendingOrders();
+    } catch (error) {
+      const message = error.response?.data?.message || 'Failed to complete order';
+      toast.error(message);
+    }
+  };
+
+  const filteredProducts = products.filter(product => {
+    const productName = (product.product_name || product.name || '').toString();
+    const categoryName = (product.category_name || product.category || '').toString();
+    const query = (searchQuery || '').toString().toLowerCase();
+    
+    return productName.toLowerCase().includes(query) ||
+           categoryName.toLowerCase().includes(query);
+  });
 
   const formatCurrency = (amount) => {
     return new Intl.NumberFormat('id-ID', {
@@ -178,9 +308,19 @@ export default function POSSystem() {
 
   return (
     <Box>
-      <Typography variant="h4" gutterBottom>
-        POS System
-      </Typography>
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+        <Typography variant="h4">
+          POS System
+        </Typography>
+        <Button
+          variant="outlined"
+          startIcon={<OrderIcon />}
+          onClick={() => setPendingOrdersDialog(true)}
+          color="primary"
+        >
+          Pending Orders ({pendingOrders.length})
+        </Button>
+      </Box>
 
       <Grid container spacing={3}>
         {/* Products Section */}
@@ -204,10 +344,10 @@ export default function POSSystem() {
               variant="scrollable"
               scrollButtons="auto"
             >
-              {categories.map((category) => (
+              {categories.map((category, index) => (
                 <Tab
-                  key={category.id}
-                  label={category.category_name}
+                  key={`category-${category.id || index}`}
+                  label={category.category_name || category.name || category.category || 'Unknown'}
                   value={category.id}
                 />
               ))}
@@ -221,15 +361,15 @@ export default function POSSystem() {
             </Box>
           ) : (
             <Grid container spacing={2}>
-              {filteredProducts.map((product) => (
-                <Grid item xs={12} sm={6} md={4} key={product.id}>
+              {filteredProducts.map((product, index) => (
+                <Grid item xs={12} sm={6} md={4} key={`product-${product.id || index}`}>
                   <Card 
                     sx={{ 
-                      cursor: 'pointer',
-                      '&:hover': { boxShadow: 4 },
-                      opacity: product.is_available ? 1 : 0.6,
+                      cursor: product.stock_quantity > 0 && (product.is_available !== false) ? 'pointer' : 'not-allowed',
+                      '&:hover': { boxShadow: product.stock_quantity > 0 && (product.is_available !== false) ? 4 : 1 },
+                      opacity: product.stock_quantity > 0 && (product.is_available !== false) ? 1 : 0.6,
                     }}
-                    onClick={() => product.is_available && addToCart(product)}
+                    onClick={() => addToCart(product)}
                   >
                     <CardMedia
                       component="div"
@@ -242,15 +382,15 @@ export default function POSSystem() {
                       }}
                     >
                       <Typography variant="h4" color="text.secondary">
-                        {product.product_name.charAt(0)}
+                        {(product.product_name || product.name || 'P').charAt(0)}
                       </Typography>
                     </CardMedia>
                     <CardContent>
                       <Typography variant="h6" noWrap>
-                        {product.product_name}
+                        {product.product_name || product.name || 'Unknown Product'}
                       </Typography>
                       <Typography variant="body2" color="text.secondary" noWrap>
-                        {product.category_name}
+                        {product.category_name || product.category || 'Unknown Category'}
                       </Typography>
                       <Box display="flex" justifyContent="space-between" alignItems="center" mt={1}>
                         <Typography variant="h6" color="primary">
@@ -258,8 +398,16 @@ export default function POSSystem() {
                         </Typography>
                         <Chip
                           size="small"
-                          label={product.stock_quantity > 0 ? `Stock: ${product.stock_quantity}` : 'Out of Stock'}
-                          color={product.stock_quantity > 0 ? 'success' : 'error'}
+                          label={
+                            product.stock_quantity > 0 
+                              ? `Stock: ${product.stock_quantity}` 
+                              : 'Out of Stock'
+                          }
+                          color={
+                            product.stock_quantity > 0 && (product.is_available !== false)
+                              ? 'success' 
+                              : 'error'
+                          }
                         />
                       </Box>
                     </CardContent>
@@ -296,10 +444,10 @@ export default function POSSystem() {
               ) : (
                 <>
                   <List dense>
-                    {cart.map((item) => (
-                      <ListItem key={item.id} divider>
+                    {cart.map((item, index) => (
+                      <ListItem key={`cart-${item.id || index}`} divider>
                         <ListItemText
-                          primary={item.product_name}
+                          primary={item.product_name || item.name || 'Unknown Product'}
                           secondary={`${formatCurrency(item.price)} x ${item.quantity}`}
                         />
                         <ListItemSecondaryAction>
@@ -361,10 +509,10 @@ export default function POSSystem() {
               Order Summary
             </Typography>
             <List dense>
-              {cart.map((item) => (
-                <ListItem key={item.id}>
+              {cart.map((item, index) => (
+                <ListItem key={`checkout-${item.id || index}`}>
                   <ListItemText
-                    primary={`${item.product_name} x ${item.quantity}`}
+                    primary={`${item.product_name || item.name || 'Unknown Product'} x ${item.quantity}`}
                     secondary={formatCurrency(item.price * item.quantity)}
                   />
                 </ListItem>
@@ -382,6 +530,7 @@ export default function POSSystem() {
           <TextField
             fullWidth
             label="Customer Name"
+            placeholder="Leave empty for Anonymous"
             value={orderForm.customer_name}
             onChange={(e) => setOrderForm({ ...orderForm, customer_name: e.target.value })}
             margin="normal"
@@ -390,6 +539,7 @@ export default function POSSystem() {
           <TextField
             fullWidth
             label="Table Number"
+            placeholder="Leave empty for Table 0"
             value={orderForm.table_number}
             onChange={(e) => setOrderForm({ ...orderForm, table_number: e.target.value })}
             margin="normal"
@@ -415,9 +565,91 @@ export default function POSSystem() {
           <Button
             onClick={handleCheckout}
             variant="contained"
-            disabled={!orderForm.customer_name || !orderForm.table_number}
           >
             Create Order
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Pending Orders Dialog */}
+      <Dialog 
+        open={pendingOrdersDialog} 
+        onClose={() => setPendingOrdersDialog(false)} 
+        maxWidth="md" 
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            Pending Orders
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={fetchPendingOrders}
+              startIcon={<SearchIcon />}
+            >
+              Refresh
+            </Button>
+          </Box>
+        </DialogTitle>
+        <DialogContent>
+          {pendingOrders.length === 0 ? (
+            <Typography color="text.secondary" textAlign="center" py={4}>
+              No pending orders
+            </Typography>
+          ) : (
+            <List>
+              {pendingOrders.map((order, index) => (
+                <ListItem key={`pending-${order.id || index}`} divider>
+                  <ListItemText
+                    primary={`Order #${order.order_number}`}
+                    secondary={
+                      <React.Fragment>
+                        <span style={{ display: 'block', marginBottom: '4px' }}>
+                          Customer: {order.customer_name || 'Anonymous'} | Table: {order.table_number || '0'}
+                        </span>
+                        {order.items && order.items.length > 0 ? (
+                          <span style={{ display: 'block', marginBottom: '4px' }}>
+                            Items: {order.items.map((item, idx) => (
+                              <span key={idx}>
+                                {item.quantity > 1 ? `${item.quantity}x ` : ''}{item.product_name}
+                                {item.quantity > 1 ? ` (@${formatCurrency(item.unit_price)})` : ` ${formatCurrency(item.unit_price)}`}
+                                {idx < order.items.length - 1 ? ', ' : ''}
+                              </span>
+                            ))}
+                          </span>
+                        ) : (
+                          <span style={{ display: 'block', marginBottom: '4px' }}>
+                            Items: ({order.item_count} items)
+                          </span>
+                        )}
+                        <span style={{ display: 'block', color: '#1976d2', fontWeight: 'bold', marginBottom: '4px' }}>
+                          Total: {formatCurrency(order.total_amount)}
+                        </span>
+                        <span style={{ display: 'block', fontSize: '0.75rem', color: 'rgba(0, 0, 0, 0.6)' }}>
+                          Created: {new Date(order.created_at).toLocaleString()}
+                        </span>
+                      </React.Fragment>
+                    }
+                  />
+                  <ListItemSecondaryAction>
+                    <Button
+                      variant="contained"
+                      color="success"
+                      size="small"
+                      startIcon={<CompleteIcon />}
+                      onClick={() => handleCompleteOrder(order.id)}
+                    >
+                      Complete
+                    </Button>
+                  </ListItemSecondaryAction>
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPendingOrdersDialog(false)}>
+            Close
           </Button>
         </DialogActions>
       </Dialog>

@@ -39,7 +39,7 @@ public class WebSocketService extends Service {
             String serverUrl = settingsManager.getServerUrl();
             if (serverUrl == null || serverUrl.isEmpty()) {
                 Log.w(TAG, "Server URL not set, using default");
-                serverUrl = "http://192.168.1.10:3000";
+                serverUrl = "http://192.168.1.2:3000";
             }
 
             Log.d(TAG, "Connecting to WebSocket server: " + serverUrl);

@@ -38,6 +38,7 @@ const PackageManagement = () => {
     const [openDialog, setOpenDialog] = useState(false);
     const [editingPackage, setEditingPackage] = useState(null);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+    const [showActiveOnly, setShowActiveOnly] = useState(false);
     
     const [formData, setFormData] = useState({
         name: '',
@@ -49,15 +50,20 @@ const PackageManagement = () => {
 
     useEffect(() => {
         fetchPackages();
-    }, []);
+    }, [showActiveOnly]);
 
     const fetchPackages = async () => {
         try {
-            const response = await axios.get('/packages');
+            const params = new URLSearchParams();
+            if (showActiveOnly) {
+                params.append('active_only', 'true');
+            }
+            const response = await axios.get(`/packages${params.toString() ? '?' + params.toString() : ''}`);
             if (response.data.success) {
-                setPackages(response.data.packages);
+                setPackages(response.data.data || []);
             }
         } catch (error) {
+            console.error('Fetch packages error:', error);
             showSnackbar('Failed to fetch packages', 'error');
         } finally {
             setLoading(false);
@@ -134,16 +140,28 @@ const PackageManagement = () => {
             handleCloseDialog();
             fetchPackages();
         } catch (error) {
-            showSnackbar('Failed to save package', 'error');
+            console.error('Save package error:', error);
+            let errorMessage = 'Failed to save package';
+            
+            if (error.response?.status === 409) {
+                errorMessage = error.response?.data?.message || 'Package name already exists';
+            } else if (error.response?.status === 400) {
+                errorMessage = error.response?.data?.message || 'Invalid data provided';
+            } else if (error.response?.data?.message) {
+                errorMessage = error.response.data.message;
+            }
+            
+            showSnackbar(errorMessage, 'error');
         }
     };
 
     const handleToggleStatus = async (pkg) => {
         try {
-            await axios.patch(`/api/packages/${pkg.id}/toggle`);
+            await axios.patch(`/packages/${pkg.id}/toggle`);
             showSnackbar(`Package ${pkg.is_active ? 'deactivated' : 'activated'} successfully`, 'success');
             fetchPackages();
         } catch (error) {
+            console.error('Toggle package error:', error);
             showSnackbar('Failed to toggle package status', 'error');
         }
     };
@@ -196,13 +214,24 @@ const PackageManagement = () => {
                 <Typography variant="h4" component="h1">
                     Package Management
                 </Typography>
-                <Button
-                    variant="contained"
-                    startIcon={<AddIcon />}
-                    onClick={() => handleOpenDialog()}
-                >
-                    Add Package
-                </Button>
+                <Box display="flex" gap={2} alignItems="center">
+                    <FormControlLabel
+                        control={
+                            <Switch
+                                checked={showActiveOnly}
+                                onChange={(e) => setShowActiveOnly(e.target.checked)}
+                            />
+                        }
+                        label="Active Only"
+                    />
+                    <Button
+                        variant="contained"
+                        startIcon={<AddIcon />}
+                        onClick={() => handleOpenDialog()}
+                    >
+                        Add Package
+                    </Button>
+                </Box>
             </Box>
 
             <TableContainer component={Paper}>

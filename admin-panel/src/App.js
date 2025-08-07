@@ -12,6 +12,10 @@ import PackageManagement from './pages/PackageManagement';
 import POSSystem from './pages/POSSystem';
 import Reports from './pages/Reports';
 import Settings from './pages/Settings';
+import SupplierManagement from './pages/SupplierManagement';
+import PurchaseOrders from './pages/PurchaseOrders';
+import StockMovements from './pages/StockMovements';
+import UserManagement from './pages/UserManagement';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
@@ -36,7 +40,12 @@ function AppContent() {
   const { isAuthenticated } = useAuth();
 
   return (
-    <Router>
+    <Router
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true
+      }}
+    >
       <Routes>
         <Route 
           path="/login" 
@@ -54,6 +63,10 @@ function AppContent() {
                     <Route path="/packages" element={<PackageManagement />} />
                     <Route path="/pos" element={<POSSystem />} />
                     <Route path="/reports" element={<Reports />} />
+                    <Route path="/suppliers" element={<SupplierManagement />} />
+                    <Route path="/purchases" element={<PurchaseOrders />} />
+                    <Route path="/stock-movements" element={<StockMovements />} />
+                    <Route path="/user-management" element={<UserManagement />} />
                     <Route path="/settings" element={<Settings />} />
                   </Routes>
                 </Layout>

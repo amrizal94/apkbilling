@@ -39,7 +39,7 @@ export function AuthProvider({ children }) {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
   // Configure axios defaults
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3005/api';
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000/api';
   
   useEffect(() => {
     axios.defaults.baseURL = API_URL;
@@ -134,7 +134,7 @@ export function AuthProvider({ children }) {
           payload: { user, token }
         });
 
-        toast.success(`Welcome back, ${user.full_name}!`);
+        toast.success(`Welcome back, ${user.fullName || user.full_name}!`);
         return { success: true };
       } else {
         throw new Error(response.data.message);

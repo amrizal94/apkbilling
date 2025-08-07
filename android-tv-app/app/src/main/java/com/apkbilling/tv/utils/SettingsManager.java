@@ -18,7 +18,7 @@ public class SettingsManager {
     private static final String KEY_KIOSK_MODE = "kiosk_mode_enabled";
     
     // Default values
-    public static final String DEFAULT_SERVER_URL = "http://192.168.1.10:3000";
+    public static final String DEFAULT_SERVER_URL = "http://192.168.1.2:3000";
     public static final int DEFAULT_WARNING_TIME_MINUTES = 5;
     public static final boolean DEFAULT_AUTO_START = false;
     public static final String DEFAULT_OVERLAY_POSITION = "top_right";

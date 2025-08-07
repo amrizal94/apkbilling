@@ -24,16 +24,22 @@ import {
   Tv as TvIcon,
   PointOfSale as PosIcon,
   Assessment as ReportsIcon,
+  Restaurant as RestaurantIcon,
   Settings as SettingsIcon,
   AccountCircle,
   Logout,
-  NotificationsActive,
   WifiOff,
   Wifi,
+  Business as BusinessIcon,
+  ShoppingCart as ShoppingCartIcon,
+  Inventory as InventoryIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import BellNotification from './BellNotification';
+import StockAlert from './StockAlert';
 
 const drawerWidth = 240;
 
@@ -41,8 +47,12 @@ const menuItems = [
   { text: 'Dashboard', icon: <DashboardIcon />, path: '/' },
   { text: 'TV Management', icon: <TvIcon />, path: '/tv-management' },
   { text: 'Package Management', icon: <PosIcon />, path: '/packages' },
-  { text: 'POS System', icon: <PosIcon />, path: '/pos' },
+  { text: 'POS System', icon: <RestaurantIcon />, path: '/pos' },
+  { text: 'Suppliers', icon: <BusinessIcon />, path: '/suppliers' },
+  { text: 'Purchase Orders', icon: <ShoppingCartIcon />, path: '/purchases' },
+  { text: 'Stock Movements', icon: <InventoryIcon />, path: '/stock-movements' },
   { text: 'Reports', icon: <ReportsIcon />, path: '/reports' },
+  { text: 'User Management', icon: <PeopleIcon />, path: '/user-management' },
   { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
 ];
 
@@ -50,7 +60,7 @@ export default function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth();
-  const { connected, activeSessions, pendingOrders } = useSocket();
+  const { connected, activeSessions, pendingOrders, pendingPurchaseOrders, lowStockItems, stockThreshold, refreshPendingOrders, clearPendingOrders, refreshLowStockItems } = useSocket();
   
   const [mobileOpen, setMobileOpen] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
@@ -113,6 +123,10 @@ export default function Layout({ children }) {
                   <Badge badgeContent={pendingOrders.length} color="error">
                     {item.icon}
                   </Badge>
+                ) : item.text === 'Purchase Orders' ? (
+                  <Badge badgeContent={pendingPurchaseOrders.length} color="error">
+                    {item.icon}
+                  </Badge>
                 ) : (
                   item.icon
                 )}
@@ -168,16 +182,36 @@ export default function Layout({ children }) {
             </Tooltip>
           )}
 
-          {/* Pending Orders Badge */}
-          {pendingOrders.length > 0 && (
-            <Tooltip title={`${pendingOrders.length} pending orders`}>
-              <IconButton color="inherit">
-                <Badge badgeContent={pendingOrders.length} color="error">
-                  <NotificationsActive />
-                </Badge>
-              </IconButton>
-            </Tooltip>
-          )}
+          {/* Stock Alert */}
+          <Tooltip title={`${lowStockItems.length} items low on stock - Click to view details`}>
+            <StockAlert 
+              lowStockItems={lowStockItems}
+              threshold={stockThreshold}
+              onRefresh={refreshLowStockItems}
+            />
+          </Tooltip>
+
+          {/* Interactive Bell Notification */}
+          <Tooltip title={`${pendingOrders.length + pendingPurchaseOrders.length} pending orders (${pendingOrders.length} POS, ${pendingPurchaseOrders.length} Purchase) - Click to refresh, Ctrl+Click to clear`}>
+            <IconButton 
+              color="inherit"
+              onClick={(e) => {
+                console.log('🔔 Bell clicked - Current pending orders:', pendingOrders);
+                console.log('🔔 Bell clicked - Current pending purchase orders:', pendingPurchaseOrders);
+                console.log('🔔 Total pending count:', pendingOrders.length + pendingPurchaseOrders.length);
+                if (e.ctrlKey) {
+                  console.log('🔔 Ctrl+Click detected - clearing pending orders');
+                  clearPendingOrders();
+                } else {
+                  refreshPendingOrders();
+                }
+              }}
+            >
+              <BellNotification
+                notificationCount={pendingOrders.length + pendingPurchaseOrders.length}
+              />
+            </IconButton>
+          </Tooltip>
 
           {/* User Menu */}
           <IconButton
@@ -189,7 +223,7 @@ export default function Layout({ children }) {
             color="inherit"
           >
             <Avatar sx={{ width: 32, height: 32, bgcolor: 'secondary.main' }}>
-              {user?.full_name?.charAt(0) || 'U'}
+              {(user?.fullName || user?.full_name)?.charAt(0) || 'U'}
             </Avatar>
           </IconButton>
           
@@ -210,11 +244,11 @@ export default function Layout({ children }) {
           >
             <MenuItem onClick={handleMenuClose} disabled>
               <AccountCircle sx={{ mr: 1 }} />
-              {user?.full_name}
+              {user?.fullName || user?.full_name}
             </MenuItem>
             <MenuItem onClick={handleMenuClose} disabled>
               <Typography variant="body2" color="text.secondary">
-                {user?.role?.toUpperCase()}
+                {user?.role?.roleName?.toUpperCase() || user?.role_name?.toUpperCase() || user?.role?.toUpperCase?.() || 'USER'}
               </Typography>
             </MenuItem>
             <MenuItem onClick={handleLogout}>

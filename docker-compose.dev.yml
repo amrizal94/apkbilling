@@ -8,28 +8,41 @@ services:
     container_name: apkbilling_postgres_dev
     restart: unless-stopped
     environment:
-      POSTGRES_DB: apkbilling
-      POSTGRES_USER: apkbilling_user
-      POSTGRES_PASSWORD: apkbilling_password
-      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./backend/migrations:/docker-entrypoint-initdb.d/migrations
     ports:
-      - "5432:5432"
+      - "${DB_PORT}:5432"
     networks:
       - apkbilling_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   # Redis for caching
   redis:
     image: redis:7-alpine
     container_name: apkbilling_redis_dev
     restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT}:6379"
     volumes:
       - redis_dev_data:/data
     networks:
       - apkbilling_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
   # Backend API (Development mode with hot reload)
   backend:

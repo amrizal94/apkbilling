@@ -45,7 +45,8 @@ public class MainActivity extends AppCompatActivity {
     // Configuration fields
     private EditText etDeviceName;
     private EditText etDeviceLocation;
-    private EditText etServerUrl;
+    private EditText etServerIp;
+    private EditText etServerPort;
     private Button btnTestConnection;
     private Button btnSaveConfig;
     private TextView tvConnectionStatus;
@@ -151,7 +152,8 @@ public class MainActivity extends AppCompatActivity {
         // Configuration views
         etDeviceName = findViewById(R.id.et_device_name);
         etDeviceLocation = findViewById(R.id.et_device_location);
-        etServerUrl = findViewById(R.id.et_server_url);
+        etServerIp = findViewById(R.id.et_server_ip);
+        etServerPort = findViewById(R.id.et_server_port);
         btnTestConnection = findViewById(R.id.btn_test_connection);
         btnSaveConfig = findViewById(R.id.btn_save_config);
         tvConnectionStatus = findViewById(R.id.tv_connection_status);
@@ -271,19 +273,45 @@ public class MainActivity extends AppCompatActivity {
     
     
     private void loadSettings() {
-        etServerUrl.setText(settingsManager.getServerUrl());
+        String currentUrl = settingsManager.getServerUrl();
+        if (currentUrl != null && !currentUrl.isEmpty()) {
+            String[] parts = parseServerUrl(currentUrl);
+            etServerIp.setText(parts[0]);
+            etServerPort.setText(parts[1]);
+        } else {
+            etServerIp.setText("192.168.1.2");
+            etServerPort.setText("3000");
+        }
         etDeviceName.setText(settingsManager.getDeviceName());
         etDeviceLocation.setText(settingsManager.getDeviceLocation());
         updateConnectionStatus();
     }
     
+    private String[] parseServerUrl(String url) {
+        try {
+            // Remove protocol if present
+            url = url.replaceFirst("^https?://", "");
+            
+            String[] parts = url.split(":");
+            if (parts.length == 2) {
+                return new String[]{parts[0], parts[1]};
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing URL: " + url, e);
+        }
+        
+        return new String[]{"192.168.1.2", "3000"};
+    }
+    
     private void testConnection() {
-        String serverUrl = etServerUrl.getText().toString().trim();
+        String serverIp = etServerIp.getText().toString().trim();
+        String serverPort = etServerPort.getText().toString().trim();
+        String serverUrl = "http://" + serverIp + ":" + serverPort;
         
         Log.d(TAG, "Starting connection test to: " + serverUrl);
         
-        if (serverUrl.isEmpty()) {
-            showToast("Please enter server URL");
+        if (serverIp.isEmpty() || serverPort.isEmpty()) {
+            showToast("Please enter server IP and port");
             return;
         }
         
@@ -326,20 +354,24 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void saveConfiguration() {
-        String serverUrl = etServerUrl.getText().toString().trim();
+        String serverIp = etServerIp.getText().toString().trim();
+        String serverPort = etServerPort.getText().toString().trim();
         String deviceName = etDeviceName.getText().toString().trim();
         String deviceLocation = etDeviceLocation.getText().toString().trim();
         
         // Validation
-        if (serverUrl.isEmpty()) {
-            showToast("Server URL is required");
-            etServerUrl.requestFocus();
+        if (serverIp.isEmpty() || serverPort.isEmpty()) {
+            showToast("Server IP and port are required");
+            if (serverIp.isEmpty()) etServerIp.requestFocus();
+            else etServerPort.requestFocus();
             return;
         }
         
+        String serverUrl = "http://" + serverIp + ":" + serverPort;
+        
         if (!isValidUrl(serverUrl)) {
-            showToast("Invalid URL format. Use: http://IP:PORT");
-            etServerUrl.requestFocus();
+            showToast("Invalid server configuration");
+            etServerIp.requestFocus();
             return;
         }
         

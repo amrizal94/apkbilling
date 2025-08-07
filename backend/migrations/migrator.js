@@ -110,6 +110,14 @@ class DatabaseMigrator {
 
     async runSeeds() {
         try {
+            // Check if database already has data (smart seeding)
+            const shouldRunSeeds = await this.shouldRunSeeds();
+            
+            if (!shouldRunSeeds) {
+                console.log('✓ Database already has data - skipping seeds');
+                return true;
+            }
+
             const files = await fs.readdir(this.seedsPath);
             const seedFiles = files
                 .filter(file => file.endsWith('.sql'))
@@ -120,7 +128,7 @@ class DatabaseMigrator {
                 return true;
             }
 
-            console.log(`Found ${seedFiles.length} seed files`);
+            console.log(`Found ${seedFiles.length} seed files - running initial seeds`);
 
             for (const seedFile of seedFiles) {
                 const seedPath = path.join(this.seedsPath, seedFile);
@@ -134,11 +142,45 @@ class DatabaseMigrator {
                 }
             }
             
-            console.log('✓ Seeds completed');
+            console.log('✓ Initial seeds completed');
             return true;
         } catch (error) {
             console.error('✗ Failed to run seeds:', error.message);
             throw error;
+        }
+    }
+
+    async shouldRunSeeds() {
+        try {
+            // Check key tables to see if they have data
+            const checks = [
+                { table: 'users', description: 'admin users' },
+                { table: 'tv_devices', description: 'TV devices' },
+                { table: 'packages', description: 'packages' },
+                { table: 'product_categories', description: 'POS categories' },
+                { table: 'products', description: 'POS products' }
+            ];
+
+            for (const check of checks) {
+                try {
+                    const [rows] = await db.execute(`SELECT COUNT(*) as count FROM ${check.table}`);
+                    const count = parseInt(rows[0].count);
+                    
+                    if (count > 0) {
+                        console.log(`✓ Found ${count} existing ${check.description} - database is not empty`);
+                        return false; // Don't run seeds
+                    }
+                } catch (error) {
+                    // Table might not exist yet, that's okay
+                    console.log(`- Table ${check.table} doesn't exist yet, will run seeds`);
+                }
+            }
+            
+            console.log('🌱 Database appears to be empty - will run initial seeds');
+            return true; // Run seeds
+        } catch (error) {
+            console.log('⚠️  Could not check database state, will attempt to run seeds');
+            return true; // Default to running seeds if check fails
         }
     }
 

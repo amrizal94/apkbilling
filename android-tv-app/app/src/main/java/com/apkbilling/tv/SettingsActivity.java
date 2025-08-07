@@ -1,18 +1,20 @@
 package com.apkbilling.tv;
 
 import android.content.Intent;
-import android.content.SharedPreferences;
+import android.graphics.drawable.AnimationDrawable;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
 import android.util.Log;
+import android.util.Patterns;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.TextView;
-import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.cardview.widget.CardView;
 
 import com.apkbilling.tv.network.ApiClient;
 import com.apkbilling.tv.utils.SettingsManager;
@@ -21,20 +23,26 @@ public class SettingsActivity extends AppCompatActivity {
     
     private static final String TAG = "SettingsActivity";
     
-    private EditText etServerUrl;
+    private EditText etServerIp;
+    private EditText etServerPort;
     private EditText etDeviceName;
     private EditText etDeviceLocation;
     private EditText etWarningTime;
-    private TextView tvConnectionStatus;
+    
+    private CardView cvConnectionStatus;
+    private ImageView ivStatusIcon;
+    private TextView tvStatusTitle;
+    private TextView tvStatusMessage;
+    
     private Button btnTestConnection;
-    private Button btnSave;
-    private Button btnReset;
+    private Button btnSaveSettings;
     private Button btnBack;
     
     private SettingsManager settingsManager;
     private ApiClient apiClient;
     private boolean isTestingConnection = false;
     private Handler timeoutHandler = new Handler(Looper.getMainLooper());
+    private Runnable timeoutRunnable;
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -48,14 +56,19 @@ public class SettingsActivity extends AppCompatActivity {
     }
     
     private void initViews() {
-        etServerUrl = findViewById(R.id.et_server_url);
+        etServerIp = findViewById(R.id.et_server_ip);
+        etServerPort = findViewById(R.id.et_server_port);
         etDeviceName = findViewById(R.id.et_device_name);
         etDeviceLocation = findViewById(R.id.et_device_location);
         etWarningTime = findViewById(R.id.et_warning_time);
-        tvConnectionStatus = findViewById(R.id.tv_connection_status);
+        
+        cvConnectionStatus = findViewById(R.id.cv_connection_status);
+        ivStatusIcon = findViewById(R.id.iv_status_icon);
+        tvStatusTitle = findViewById(R.id.tv_status_title);
+        tvStatusMessage = findViewById(R.id.tv_status_message);
+        
         btnTestConnection = findViewById(R.id.btn_test_connection);
-        btnSave = findViewById(R.id.btn_save);
-        btnReset = findViewById(R.id.btn_reset);
+        btnSaveSettings = findViewById(R.id.btn_save_settings);
         btnBack = findViewById(R.id.btn_back);
     }
     
@@ -65,27 +78,66 @@ public class SettingsActivity extends AppCompatActivity {
     }
     
     private void loadSettings() {
-        etServerUrl.setText(settingsManager.getServerUrl());
+        String currentUrl = settingsManager.getServerUrl();
+        if (!TextUtils.isEmpty(currentUrl)) {
+            String[] parts = parseServerUrl(currentUrl);
+            etServerIp.setText(parts[0]);
+            etServerPort.setText(parts[1]);
+        } else {
+            etServerIp.setText("192.168.1.2");
+            etServerPort.setText("3000");
+        }
+        
         etDeviceName.setText(settingsManager.getDeviceName());
         etDeviceLocation.setText(settingsManager.getDeviceLocation());
         etWarningTime.setText(String.valueOf(settingsManager.getWarningTimeMinutes()));
-        updateConnectionStatus();
+    }
+    
+    private String[] parseServerUrl(String url) {
+        try {
+            // Remove protocol if present
+            url = url.replaceFirst("^https?://", "");
+            
+            String[] parts = url.split(":");
+            if (parts.length == 2) {
+                return new String[]{parts[0], parts[1]};
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error parsing URL: " + url, e);
+        }
+        
+        return new String[]{"192.168.1.2", "3000"};
     }
     
     private void setupClickListeners() {
         btnTestConnection.setOnClickListener(v -> testConnection());
-        btnSave.setOnClickListener(v -> saveSettings());
-        btnReset.setOnClickListener(v -> resetToDefaults());
-        btnBack.setOnClickListener(v -> finishAndReturnToMain());
+        btnSaveSettings.setOnClickListener(v -> saveSettings());
+        btnBack.setOnClickListener(v -> finish());
     }
     
     private void testConnection() {
-        String serverUrl = etServerUrl.getText().toString().trim();
+        String serverIp = etServerIp.getText().toString().trim();
+        String serverPort = etServerPort.getText().toString().trim();
         
-        Log.d(TAG, "Starting connection test to: " + serverUrl);
+        Log.d(TAG, "Starting connection test to: " + serverIp + ":" + serverPort);
         
-        if (TextUtils.isEmpty(serverUrl)) {
-            showToast("Please enter server URL");
+        if (TextUtils.isEmpty(serverIp)) {
+            showErrorStatus("Validation Error", "Please enter server IP address");
+            return;
+        }
+        
+        if (TextUtils.isEmpty(serverPort)) {
+            showErrorStatus("Validation Error", "Please enter server port");
+            return;
+        }
+        
+        if (!isValidIpAddress(serverIp)) {
+            showErrorStatus("Invalid IP", "Please enter a valid IP address (e.g., 192.168.1.2)");
+            return;
+        }
+        
+        if (!isValidPort(serverPort)) {
+            showErrorStatus("Invalid Port", "Port must be between 1 and 65535");
             return;
         }
         
@@ -94,140 +146,149 @@ public class SettingsActivity extends AppCompatActivity {
             return;
         }
         
-        // Validate URL format
-        if (!isValidUrl(serverUrl)) {
-            showToast("Invalid URL format. Use: http://IP:PORT");
-            return;
-        }
+        performConnectionTest(serverIp, serverPort);
+    }
+    
+    private void performConnectionTest(String ip, String port) {
+        String serverUrl = "http://" + ip + ":" + port;
+        
+        showLoadingStatus("Testing Connection", "Connecting to " + ip + ":" + port + "...");
         
         isTestingConnection = true;
         btnTestConnection.setEnabled(false);
-        btnTestConnection.setText("Testing...");
-        tvConnectionStatus.setText("Testing connection...");
-        tvConnectionStatus.setTextColor(getColor(R.color.text_secondary));
+        btnTestConnection.setText("TESTING...");
         
-        // Set timeout fallback
-        Runnable timeoutRunnable = () -> {
+        // Set timeout
+        timeoutRunnable = () -> {
             if (isTestingConnection) {
-                Log.w(TAG, "Connection test timed out");
+                isTestingConnection = false;
                 runOnUiThread(() -> {
-                    tvConnectionStatus.setText("❌ Connection timeout");
-                    tvConnectionStatus.setTextColor(getColor(R.color.status_error));
-                    showToast("Connection timeout");
                     resetTestButton();
+                    showErrorStatus("Connection Timeout", 
+                        "Failed to connect to server within 10 seconds.\n" +
+                        "Check IP address, port, and network connection.");
                 });
             }
         };
-        timeoutHandler.postDelayed(timeoutRunnable, 15000); // 15 second timeout
+        timeoutHandler.postDelayed(timeoutRunnable, 10000); // 10 second timeout
         
-        // Set temporary URL for testing
         apiClient.setBaseUrl(serverUrl + "/api");
-        
-        apiClient.checkConnection(new ApiClient.ConnectionCallback() {
+        apiClient.testConnection(new ApiClient.ConnectionCallback() {
             @Override
             public void onSuccess() {
+                isTestingConnection = false;
                 timeoutHandler.removeCallbacks(timeoutRunnable);
-                Log.d(TAG, "Connection test successful");
-                
-                // Auto-register device after successful connection test
-                registerDeviceAfterConnection(serverUrl);
                 
                 runOnUiThread(() -> {
-                    if (isTestingConnection) {
-                        tvConnectionStatus.setText("✅ Connected successfully!");
-                        tvConnectionStatus.setTextColor(getColor(R.color.status_active));
-                        showToast("Connection successful!");
-                        resetTestButton();
-                    }
+                    resetTestButton();
+                    showSuccessStatus("Connection Successful", 
+                        "Successfully connected to " + ip + ":" + port + "\n" +
+                        "Server is responding normally.");
                 });
             }
             
             @Override
             public void onError(String error) {
+                isTestingConnection = false;
                 timeoutHandler.removeCallbacks(timeoutRunnable);
-                Log.e(TAG, "Connection test failed: " + error);
+                
                 runOnUiThread(() -> {
-                    if (isTestingConnection) {
-                        tvConnectionStatus.setText("❌ Connection failed: " + error);
-                        tvConnectionStatus.setTextColor(getColor(R.color.status_error));
-                        showToast("Connection failed: " + error);
-                        resetTestButton();
-                    }
+                    resetTestButton();
+                    
+                    String friendlyError = getFriendlyErrorMessage(error);
+                    showErrorStatus("Connection Failed", friendlyError);
                 });
             }
         });
     }
     
+    private String getFriendlyErrorMessage(String error) {
+        if (error.contains("ConnectException") || error.contains("Connection refused")) {
+            return "Server is not running or not accessible.\n• Check if server is started\n• Verify IP address and port\n• Check firewall settings";
+        } else if (error.contains("UnknownHostException")) {
+            return "Cannot resolve server address.\n• Check IP address\n• Verify network connection";
+        } else if (error.contains("SocketTimeoutException")) {
+            return "Connection timed out.\n• Server may be overloaded\n• Check network stability\n• Try again in a moment";
+        } else if (error.contains("NetworkException")) {
+            return "Network error occurred.\n• Check WiFi connection\n• Verify network settings";
+        } else {
+            return "Connection failed: " + error;
+        }
+    }
+    
     private void resetTestButton() {
-        isTestingConnection = false;
         btnTestConnection.setEnabled(true);
         btnTestConnection.setText("TEST CONNECTION");
     }
     
-    private void registerDeviceAfterConnection(String serverUrl) {
-        try {
-            String deviceId = android.provider.Settings.Secure.getString(
-                getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
-            String deviceName = etDeviceName.getText().toString().trim();
-            String deviceLocation = etDeviceLocation.getText().toString().trim();
-            
-            if (deviceName.isEmpty()) {
-                deviceName = "AndroidTV-" + android.os.Build.MODEL;
+    private void showLoadingStatus(String title, String message) {
+        cvConnectionStatus.setVisibility(View.VISIBLE);
+        ivStatusIcon.setImageResource(R.drawable.ic_loading);
+        tvStatusTitle.setText(title);
+        tvStatusMessage.setText(message);
+        
+        // Start rotation animation for loading icon
+        ivStatusIcon.animate().rotationBy(360f).setDuration(1000).withEndAction(() -> {
+            if (isTestingConnection) {
+                showLoadingStatus(title, message); // Continue animation
             }
-            
-            // Make variables effectively final for use in inner class
-            final String finalDeviceName = deviceName;
-            final String finalDeviceLocation = deviceLocation;
-            
-            Log.d(TAG, "Auto-discovering device after connection test: " + deviceId);
-            
-            // Create temporary API client for discovery
-            ApiClient regApiClient = new ApiClient(this);
-            regApiClient.setBaseUrl(serverUrl + "/api");
-            
-            regApiClient.discoverDevice(deviceId, finalDeviceName, finalDeviceLocation, new ApiClient.ApiCallback<ApiClient.DeviceResponse>() {
-                @Override
-                public void onSuccess(ApiClient.DeviceResponse data) {
-                    Log.d(TAG, "Device discovered successfully: " + finalDeviceName);
-                    runOnUiThread(() -> {
-                        showToast("Device discovered. Waiting for approval.");
-                    });
-                }
-                
-                @Override
-                public void onError(String error) {
-                    Log.w(TAG, "Device discovery failed: " + error);
-                    // Don't show error to user as this is automatic
-                }
-            });
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Error during auto-registration", e);
+        });
+    }
+    
+    private void showSuccessStatus(String title, String message) {
+        cvConnectionStatus.setVisibility(View.VISIBLE);
+        ivStatusIcon.setImageResource(R.drawable.ic_check_circle);
+        ivStatusIcon.clearAnimation();
+        tvStatusTitle.setText(title);
+        tvStatusMessage.setText(message);
+    }
+    
+    private void showErrorStatus(String title, String message) {
+        cvConnectionStatus.setVisibility(View.VISIBLE);
+        ivStatusIcon.setImageResource(R.drawable.ic_error_circle);
+        ivStatusIcon.clearAnimation();
+        tvStatusTitle.setText(title);
+        tvStatusMessage.setText(message);
+    }
+    
+    private boolean isValidIpAddress(String ip) {
+        return Patterns.IP_ADDRESS.matcher(ip).matches();
+    }
+    
+    private boolean isValidPort(String portStr) {
+        try {
+            int port = Integer.parseInt(portStr);
+            return port >= 1 && port <= 65535;
+        } catch (NumberFormatException e) {
+            return false;
         }
     }
     
     private void saveSettings() {
-        String serverUrl = etServerUrl.getText().toString().trim();
+        String serverIp = etServerIp.getText().toString().trim();
+        String serverPort = etServerPort.getText().toString().trim();
         String deviceName = etDeviceName.getText().toString().trim();
         String deviceLocation = etDeviceLocation.getText().toString().trim();
         String warningTimeStr = etWarningTime.getText().toString().trim();
         
-        // Validation
-        if (TextUtils.isEmpty(serverUrl)) {
-            showToast("Server URL is required");
-            etServerUrl.requestFocus();
+        // Validate inputs
+        if (TextUtils.isEmpty(serverIp) || TextUtils.isEmpty(serverPort)) {
+            showErrorStatus("Validation Error", "Please enter both server IP and port");
             return;
         }
         
-        if (!isValidUrl(serverUrl)) {
-            showToast("Invalid URL format. Use: http://IP:PORT");
-            etServerUrl.requestFocus();
+        if (!isValidIpAddress(serverIp)) {
+            showErrorStatus("Invalid IP", "Please enter a valid IP address");
+            return;
+        }
+        
+        if (!isValidPort(serverPort)) {
+            showErrorStatus("Invalid Port", "Port must be between 1 and 65535");
             return;
         }
         
         if (TextUtils.isEmpty(deviceName)) {
-            showToast("Device name is required");
-            etDeviceName.requestFocus();
+            showErrorStatus("Validation Error", "Please enter device name");
             return;
         }
         
@@ -236,118 +297,82 @@ public class SettingsActivity extends AppCompatActivity {
             try {
                 warningTime = Integer.parseInt(warningTimeStr);
                 if (warningTime < 1 || warningTime > 60) {
-                    showToast("Warning time must be between 1-60 minutes");
-                    etWarningTime.requestFocus();
+                    showErrorStatus("Invalid Warning Time", "Warning time must be between 1 and 60 minutes");
                     return;
                 }
             } catch (NumberFormatException e) {
-                showToast("Invalid warning time format");
-                etWarningTime.requestFocus();
+                showErrorStatus("Invalid Warning Time", "Please enter a valid number for warning time");
                 return;
             }
         }
         
         // Save settings
+        String serverUrl = "http://" + serverIp + ":" + serverPort;
         settingsManager.setServerUrl(serverUrl);
         settingsManager.setDeviceName(deviceName);
         settingsManager.setDeviceLocation(deviceLocation);
         settingsManager.setWarningTimeMinutes(warningTime);
         
-        showToast("Settings saved successfully!");
+        // Update server with new device configuration
+        apiClient.setBaseUrl(serverUrl);
+        String deviceId = settingsManager.getDeviceId();
         
-        // Re-register device with new name to update server
-        reRegisterDeviceWithNewName(serverUrl, deviceName, deviceLocation);
-        
-        // Update connection status
-        updateConnectionStatus();
-        
-        // Optional: Go back to main activity
-        finishAndReturnToMain();
-    }
-    
-    private void reRegisterDeviceWithNewName(String serverUrl, String deviceName, String deviceLocation) {
-        try {
-            String deviceId = android.provider.Settings.Secure.getString(
-                getContentResolver(), android.provider.Settings.Secure.ANDROID_ID);
-            
-            Log.d(TAG, "Re-registering device with new name: " + deviceName);
-            
-            // Update API client URL first
-            apiClient.setBaseUrl(serverUrl + "/api");
-            
-            // Use discoverDevice instead of registerDevice to include location
+        if (deviceId != null && !deviceId.isEmpty()) {
+            Log.d(TAG, "Updating server with new device config: " + deviceName + " @ " + deviceLocation);
             apiClient.discoverDevice(deviceId, deviceName, deviceLocation, new ApiClient.ApiCallback<ApiClient.DeviceResponse>() {
                 @Override
                 public void onSuccess(ApiClient.DeviceResponse data) {
-                    Log.d(TAG, "Device re-registered successfully with new name: " + data.device_name);
                     runOnUiThread(() -> {
-                        showToast("Device name updated on server!");
+                        showSuccessStatus("Settings Saved", 
+                            "Settings saved and synced to server.\n" +
+                            "Server: " + serverIp + ":" + serverPort + "\n" +
+                            "Device: " + deviceName + " @ " + deviceLocation);
+                        
+                        // Auto hide status after 3 seconds
+                        timeoutHandler.postDelayed(() -> {
+                            cvConnectionStatus.setVisibility(View.GONE);
+                        }, 3000);
                     });
+                    Log.d(TAG, "Device configuration updated on server successfully");
                 }
                 
                 @Override
                 public void onError(String error) {
-                    Log.e(TAG, "Device re-registration failed: " + error);
                     runOnUiThread(() -> {
-                        showToast("Warning: Device name saved locally but server update failed");
+                        showSuccessStatus("Settings Saved Locally", 
+                            "Settings saved locally but server sync failed.\n" +
+                            "Server: " + serverIp + ":" + serverPort + "\n" +
+                            "Device: " + deviceName + " @ " + deviceLocation + "\n" +
+                            "Error: " + error);
+                        
+                        // Auto hide status after 5 seconds for error message
+                        timeoutHandler.postDelayed(() -> {
+                            cvConnectionStatus.setVisibility(View.GONE);
+                        }, 5000);
                     });
+                    Log.w(TAG, "Failed to update device config on server: " + error);
                 }
             });
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Error during device re-registration", e);
-        }
-    }
-    
-    private void resetToDefaults() {
-        etServerUrl.setText(SettingsManager.DEFAULT_SERVER_URL);
-        etDeviceName.setText(SettingsManager.getDefaultDeviceName());
-        etDeviceLocation.setText("");
-        etWarningTime.setText(String.valueOf(SettingsManager.DEFAULT_WARNING_TIME_MINUTES));
-        tvConnectionStatus.setText("Connection not tested");
-        tvConnectionStatus.setTextColor(getColor(R.color.text_secondary));
-        showToast("Settings reset to defaults");
-    }
-    
-    private void updateConnectionStatus() {
-        String currentUrl = settingsManager.getServerUrl();
-        if (currentUrl.equals(SettingsManager.DEFAULT_SERVER_URL)) {
-            tvConnectionStatus.setText("⚠️ Using default settings");
-            tvConnectionStatus.setTextColor(getColor(R.color.status_warning));
         } else {
-            tvConnectionStatus.setText("Using custom server: " + currentUrl);
-            tvConnectionStatus.setTextColor(getColor(R.color.text_secondary));
-        }
-    }
-    
-    private boolean isValidUrl(String url) {
-        if (TextUtils.isEmpty(url)) {
-            return false;
+            showSuccessStatus("Settings Saved", 
+                "Settings have been saved successfully.\n" +
+                "Server: " + serverIp + ":" + serverPort + "\n" +
+                "Device: " + deviceName);
+            
+            // Auto hide status after 3 seconds
+            timeoutHandler.postDelayed(() -> {
+                cvConnectionStatus.setVisibility(View.GONE);
+            }, 3000);
         }
         
-        // Simple URL validation
-        return url.startsWith("http://") && 
-               url.contains(":") && 
-               url.length() > 10 &&
-               !url.endsWith("/");
-    }
-    
-    private void showToast(String message) {
-        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        Log.d(TAG, "Settings saved successfully");
     }
     
     @Override
-    public void onBackPressed() {
-        super.onBackPressed();
-        finishAndReturnToMain();
-    }
-    
-    private void finishAndReturnToMain() {
-        // Send flag to MainActivity that we're coming from settings
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        intent.putExtra("from_settings", true);
-        startActivity(intent);
-        finish();
+    protected void onDestroy() {
+        super.onDestroy();
+        if (timeoutRunnable != null) {
+            timeoutHandler.removeCallbacks(timeoutRunnable);
+        }
     }
 }

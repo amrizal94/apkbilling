@@ -93,7 +93,7 @@ public class NetworkUtils {
         }
         
         // Add common development IPs
-        serverIPs.add("192.168.1.10");
+        serverIPs.add("192.168.1.2");
         serverIPs.add("192.168.0.10");
         serverIPs.add("10.0.0.10");
         serverIPs.add("172.16.0.10");

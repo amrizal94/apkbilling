@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test POS Endpoint</title>
+</head>
+<body>
+    <h1>Testing /api/pos/products endpoint</h1>
+    <button onclick="testEndpoint()">Test Endpoint</button>
+    <div id="result"></div>
+
+    <script>
+        async function testEndpoint() {
+            try {
+                // You'll need to get the auth token from localStorage or sessionStorage
+                const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+                
+                const response = await fetch('http://localhost:3000/api/pos/products', {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                console.log('Raw response:', data);
+                
+                if (data.success && data.data) {
+                    console.log('First 3 products:', data.data.slice(0, 3));
+                    
+                    // Test the filtering logic
+                    const lowStock = data.data.filter(product => 
+                        product.stock_quantity <= 15 && product.is_active
+                    );
+                    console.log('Low stock products:', lowStock.slice(0, 3));
+                    
+                    // Test the duplicate detection
+                    const ayamProducts = data.data.filter(p => p.product_name && p.product_name.includes('Ayam Penyet'));
+                    console.log('Ayam Penyet products:', ayamProducts);
+                }
+                
+                document.getElementById('result').innerHTML = `
+                    <h3>Response:</h3>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+                
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -26,7 +26,7 @@ public class ApiClient {
     private Context context;
     private OkHttpClient client;
     private Gson gson;
-    private String baseUrl = "http://192.168.1.10:3000/api";
+    private String baseUrl = "http://192.168.1.2:3000/api";
     
     public ApiClient(Context context) {
         this.context = context;
@@ -57,34 +57,60 @@ public class ApiClient {
         void onError(String error);
     }
     
-    public void checkConnection(ConnectionCallback callback) {
+    public void testConnection(ConnectionCallback callback) {
         String url = baseUrl + "/health";
         Log.d(TAG, "Testing connection to: " + url);
         
         Request request = new Request.Builder()
                 .url(url)
+                .addHeader("Accept", "application/json")
                 .build();
         
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
                 Log.e(TAG, "Connection failed to " + url, e);
-                callback.onError("Connection Failed: " + e.getMessage());
+                
+                String errorMessage = e.getMessage();
+                if (e instanceof java.net.ConnectException) {
+                    errorMessage = "ConnectException: " + e.getMessage();
+                } else if (e instanceof java.net.SocketTimeoutException) {
+                    errorMessage = "SocketTimeoutException: " + e.getMessage();
+                } else if (e instanceof java.net.UnknownHostException) {
+                    errorMessage = "UnknownHostException: " + e.getMessage();
+                } else if (e instanceof java.io.IOException) {
+                    errorMessage = "NetworkException: " + e.getMessage();
+                }
+                
+                callback.onError(errorMessage);
             }
             
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 Log.d(TAG, "Response received: " + response.code());
-                if (response.isSuccessful()) {
-                    Log.d(TAG, "Connection test successful");
-                    callback.onSuccess();
-                } else {
-                    Log.w(TAG, "Server error: " + response.code());
-                    callback.onError("Server Error: " + response.code());
+                
+                try {
+                    if (response.isSuccessful()) {
+                        String responseBody = response.body().string();
+                        Log.d(TAG, "Connection test successful. Response: " + responseBody);
+                        callback.onSuccess();
+                    } else {
+                        Log.w(TAG, "Server error: " + response.code() + " " + response.message());
+                        callback.onError("Server Error: HTTP " + response.code() + " - " + response.message());
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error processing response", e);
+                    callback.onError("Response Error: " + e.getMessage());
+                } finally {
+                    response.close();
                 }
-                response.close();
             }
         });
+    }
+    
+    public void checkConnection(ConnectionCallback callback) {
+        // Legacy method - redirect to testConnection
+        testConnection(callback);
     }
     
     public void discoverDevice(String deviceId, String deviceName, String location, ApiCallback<DeviceResponse> callback) {
@@ -333,15 +359,18 @@ public class ApiClient {
     public void sendHeartbeat(String deviceId, String deviceName, String deviceLocation, ApiCallback<HeartbeatResponse> callback) {
         String url = baseUrl + "/tv/heartbeat/" + deviceId;
         
-        // Create JSON body with device name and location for real-time updates
-        String jsonBody = "{\n" +
-                "  \"device_name\": \"" + (deviceName != null ? deviceName : "") + "\",\n" +
-                "  \"device_location\": \"" + (deviceLocation != null ? deviceLocation : "") + "\"\n" +
-                "}";
+        // Create heartbeat request object for safe JSON serialization
+        HeartbeatRequest request = new HeartbeatRequest();
+        request.device_name = deviceName != null ? deviceName.trim() : "";
+        request.device_location = deviceLocation != null ? deviceLocation.trim() : "";
+        
+        // Use Gson for safe JSON serialization to avoid control character issues
+        String jsonBody = gson.toJson(request);
+        RequestBody body = RequestBody.create(jsonBody, JSON);
         
         Request httpRequest = new Request.Builder()
                 .url(url)
-                .post(RequestBody.create(jsonBody, JSON))
+                .post(body)
                 .build();
         
         client.newCall(httpRequest).enqueue(new Callback() {
@@ -358,16 +387,21 @@ public class ApiClient {
                 
                 if (response.isSuccessful()) {
                     try {
-                        ApiResponse<HeartbeatResponse> apiResponse = gson.fromJson(responseBody, ApiResponse.class);
-                        if (apiResponse.success) {
+                        Log.d(TAG, "Heartbeat response body: " + responseBody);
+                        Type responseType = new TypeToken<ApiResponse<HeartbeatResponse>>(){}.getType();
+                        ApiResponse<HeartbeatResponse> apiResponse = gson.fromJson(responseBody, responseType);
+                        if (apiResponse.success && apiResponse.data != null) {
                             callback.onSuccess(apiResponse.data);
                         } else {
-                            callback.onError(apiResponse.message);
+                            callback.onError(apiResponse.message != null ? apiResponse.message : "Unknown error");
                         }
                     } catch (Exception e) {
-                        callback.onError("Invalid response format");
+                        Log.e(TAG, "Failed to parse heartbeat response", e);
+                        Log.e(TAG, "Response body was: " + responseBody);
+                        callback.onError("Invalid response format: " + e.getMessage());
                     }
                 } else {
+                    Log.e(TAG, "Heartbeat HTTP error: " + response.code() + " - " + responseBody);
                     callback.onError("Server error: " + response.code());
                 }
             }
@@ -421,6 +455,11 @@ public class ApiClient {
         public String status;
         public String start_time;
         public String end_time;
+    }
+    
+    public static class HeartbeatRequest {
+        public String device_name;
+        public String device_location;
     }
     
     public static class HeartbeatResponse {

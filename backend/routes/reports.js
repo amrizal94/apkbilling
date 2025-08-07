@@ -18,13 +18,22 @@ router.get('/dashboard', auth, async (req, res) => {
             WHERE DATE(created_at) = $1
         `, [today]);
         
-        // POS Orders summary
+        // POS Orders summary (standalone)
         const [posStats] = await db.execute(`
             SELECT 
                 COUNT(*) as total_orders,
                 COUNT(CASE WHEN status IN ('pending', 'preparing') THEN 1 END) as pending_orders,
                 SUM(total_amount) as total_revenue
             FROM orders 
+            WHERE DATE(created_at) = $1
+        `, [today]);
+        
+        // Session Orders summary (linked to gaming)
+        const [sessionOrderStats] = await db.execute(`
+            SELECT 
+                COUNT(*) as total_orders,
+                SUM(total_amount) as total_revenue
+            FROM session_orders 
             WHERE DATE(created_at) = $1
         `, [today]);
         
@@ -60,6 +69,14 @@ router.get('/dashboard', auth, async (req, res) => {
                     pending_orders: parseInt(posStats[0].pending_orders) || 0,
                     revenue: parseFloat(posStats[0].total_revenue) || 0
                 },
+                session_orders: {
+                    total_orders: parseInt(sessionOrderStats[0].total_orders) || 0,
+                    revenue: parseFloat(sessionOrderStats[0].total_revenue) || 0
+                },
+                fnb_combined: {
+                    total_orders: (parseInt(posStats[0].total_orders) || 0) + (parseInt(sessionOrderStats[0].total_orders) || 0),
+                    total_revenue: (parseFloat(posStats[0].total_revenue) || 0) + (parseFloat(sessionOrderStats[0].total_revenue) || 0)
+                },
                 devices: {
                     total: parseInt(deviceStats[0].total_devices) || 0,
                     online: parseInt(deviceStats[0].online_devices) || 0,
@@ -87,17 +104,49 @@ router.get('/tv-billing', auth, async (req, res) => {
         let query = `
             SELECT 
                 tv.id,
-                tv.customer_name,
+                tv.payment_notes,
                 tv.start_time,
                 tv.end_time,
                 tv.duration_minutes,
                 tv.amount_paid,
                 tv.status,
                 d.device_name,
-                bp.package_name
+                p.name as package_name,
+                p.duration_minutes as package_duration,
+                p.price as package_price,
+                COALESCE(sp_additional.additional_minutes, 0) as additional_minutes,
+                COALESCE(sp_additional.additional_amount, 0) as additional_amount,
+                sp_details.packages_detail,
+                sp_details.packages_breakdown
             FROM tv_sessions tv
             JOIN tv_devices d ON tv.device_id = d.id
-            LEFT JOIN billing_packages bp ON tv.package_id = bp.id
+            LEFT JOIN packages p ON tv.package_id = p.id
+            LEFT JOIN (
+                SELECT 
+                    session_id,
+                    SUM(CASE WHEN package_type = 'additional' THEN duration_minutes ELSE 0 END) as additional_minutes,
+                    SUM(CASE WHEN package_type = 'additional' THEN price ELSE 0 END) as additional_amount
+                FROM session_packages 
+                GROUP BY session_id
+            ) sp_additional ON tv.id = sp_additional.session_id
+            LEFT JOIN (
+                SELECT 
+                    session_id,
+                    STRING_AGG(
+                        package_name || ' - ' || duration_minutes || ' menit',
+                        ' + ' ORDER BY added_at
+                    ) as packages_detail,
+                    JSON_AGG(
+                        JSON_BUILD_OBJECT(
+                            'package_name', package_name,
+                            'duration_minutes', duration_minutes,
+                            'price', price,
+                            'package_type', package_type
+                        ) ORDER BY added_at
+                    ) as packages_breakdown
+                FROM session_packages
+                GROUP BY session_id
+            ) sp_details ON tv.id = sp_details.session_id
             WHERE 1=1
         `;
         const params = [];
@@ -267,6 +316,114 @@ router.get('/product-performance', auth, async (req, res) => {
         res.json({
             success: true,
             data: products
+        });
+        
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Unified F&B report (combines POS orders and session orders)
+router.get('/fnb-unified', auth, async (req, res) => {
+    try {
+        const { start_date, end_date } = req.query;
+        
+        // Get POS orders (standalone)
+        let posQuery = `
+            SELECT 
+                o.id,
+                o.order_number as reference,
+                o.customer_name,
+                o.table_number,
+                NULL as device_name,
+                o.total_amount,
+                o.status,
+                o.created_at,
+                JSON_AGG(
+                    JSON_BUILD_OBJECT(
+                        'product_name', p.product_name,
+                        'quantity', oi.quantity,
+                        'price', oi.unit_price,
+                        'subtotal', oi.total_price
+                    )
+                ) as items_detail
+            FROM orders o
+            LEFT JOIN order_items oi ON o.id = oi.order_id
+            LEFT JOIN products p ON oi.product_id = p.id
+            WHERE 1=1
+        `;
+        const posParams = [];
+        
+        if (start_date) {
+            posQuery += ' AND DATE(o.created_at) >= $' + (posParams.length + 1);
+            posParams.push(start_date);
+        }
+        
+        if (end_date) {
+            posQuery += ' AND DATE(o.created_at) <= $' + (posParams.length + 1);
+            posParams.push(end_date);
+        }
+        
+        posQuery += ' GROUP BY o.id, o.order_number, o.customer_name, o.table_number, o.total_amount, o.status, o.created_at';
+        
+        // Get session orders (linked to gaming)
+        let sessionQuery = `
+            SELECT 
+                so.id,
+                CONCAT('S-', so.session_id) as reference,
+                so.customer_name,
+                NULL as table_number,
+                d.device_name,
+                so.total_amount,
+                'completed' as status,
+                so.created_at,
+                so.order_items as items_detail
+            FROM session_orders so
+            JOIN tv_sessions s ON so.session_id = s.id
+            JOIN tv_devices d ON so.device_id = d.id
+            WHERE 1=1
+        `;
+        const sessionParams = [];
+        
+        if (start_date) {
+            sessionQuery += ' AND DATE(so.created_at) >= $' + (sessionParams.length + 1);
+            sessionParams.push(start_date);
+        }
+        
+        if (end_date) {
+            sessionQuery += ' AND DATE(so.created_at) <= $' + (sessionParams.length + 1);
+            sessionParams.push(end_date);
+        }
+        
+        // Execute both queries
+        const [posOrders] = await db.execute(posQuery, posParams);
+        const [sessionOrders] = await db.execute(sessionQuery, sessionParams);
+        
+        // Combine and sort by date
+        const allOrders = [...posOrders, ...sessionOrders]
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+        
+        // Calculate summary
+        const totalRevenue = allOrders.reduce((sum, order) => sum + parseFloat(order.total_amount || 0), 0);
+        const posRevenue = posOrders.reduce((sum, order) => sum + parseFloat(order.total_amount || 0), 0);
+        const sessionRevenue = sessionOrders.reduce((sum, order) => sum + parseFloat(order.total_amount || 0), 0);
+        
+        res.json({
+            success: true,
+            data: {
+                orders: allOrders,
+                summary: {
+                    total_orders: allOrders.length,
+                    pos_orders: posOrders.length,
+                    session_orders: sessionOrders.length,
+                    total_revenue: totalRevenue,
+                    pos_revenue: posRevenue,
+                    session_revenue: sessionRevenue
+                }
+            }
         });
         
     } catch (error) {
