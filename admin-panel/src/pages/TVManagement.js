@@ -80,8 +80,8 @@ export default function TVManagement() {
   useEffect(() => {
     fetchDevices();
     fetchPackages();
-    // Reduce polling interval to 60 seconds since we rely on WebSocket for real-time updates
-    const interval = setInterval(fetchDevices, 60000); // Refresh every 60 seconds as backup
+    // Reduce polling interval to 2 minutes since we rely on WebSocket for real-time updates
+    const interval = setInterval(fetchDevices, 120000); // Refresh every 2 minutes as backup
     
     // Listen for real-time refresh events  
     const handleRefresh = () => {
@@ -198,7 +198,7 @@ export default function TVManagement() {
 
   const handleStopSession = async (sessionId, deviceName) => {
     try {
-      const response = await axios.post(`/tv/stop-session/${sessionId}`);
+      const response = await axios.put(`/tv/sessions/${sessionId}/end`);
       if (response.data.success) {
         toast.success(`Session stopped for ${deviceName}`);
         fetchDevices();
@@ -211,7 +211,7 @@ export default function TVManagement() {
 
   const handleSessionSubmit = async () => {
     try {
-      const response = await axios.post('/tv/start-session', {
+      const response = await axios.post('/tv/sessions', {
         device_id: sessionDialog.device.device_id,
         customer_name: sessionDialog.device.device_name, // Auto-use device name
         package_id: sessionForm.package_id,
@@ -309,7 +309,7 @@ export default function TVManagement() {
     }
 
     try {
-      const response = await axios.post(`/tv/add-time/${device.session_id}`, {
+      const response = await axios.post(`/tv/sessions/${device.session_id}/add-time`, {
         additional_minutes: additionalMinutes,
         additional_amount: amount
       });
@@ -343,7 +343,7 @@ export default function TVManagement() {
     if (!device || !device.session_id) return;
 
     try {
-      const response = await axios.post(`/tv/confirm-payment/${device.session_id}`, {
+      const response = await axios.post(`/tv/sessions/${device.session_id}/confirm-payment`, {
         payment_notes: paymentForm.payment_notes
       });
 
@@ -415,7 +415,7 @@ export default function TVManagement() {
     }
 
     try {
-      const response = await axios.post(`/tv/session-order/${device.session_id}`, {
+      const response = await axios.post(`/tv/sessions/${device.session_id}/order`, {
         order_items: orderForm.items,
         order_notes: orderForm.notes
       });
@@ -449,7 +449,7 @@ export default function TVManagement() {
     if (!device || !device.session_id) return;
 
     try {
-      const response = await axios.post(`/tv/pause-session/${device.session_id}`, {
+      const response = await axios.post(`/tv/sessions/${device.session_id}/pause`, {
         pause_reason: pauseForm.pause_reason,
         pause_notes: pauseForm.pause_notes
       });
@@ -477,7 +477,7 @@ export default function TVManagement() {
     if (!device || !device.session_id) return;
 
     try {
-      const response = await axios.post(`/tv/resume-session/${device.session_id}`, {
+      const response = await axios.post(`/tv/sessions/${device.session_id}/resume`, {
         resume_notes: `Resumed by operator`
       });
 

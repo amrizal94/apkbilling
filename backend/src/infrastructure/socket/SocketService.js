@@ -382,6 +382,30 @@ class SocketService {
   }
 
   /**
+   * Generic broadcast method
+   */
+  broadcast(event, data) {
+    if (this.io) {
+      this.io.emit(event, {
+        ...data,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+
+  /**
+   * Broadcast device updated event
+   */
+  broadcastDeviceUpdated(data) {
+    if (this.io) {
+      this.io.emit('device_updated', {
+        ...data,
+        timestamp: new Date().toISOString()
+      });
+    }
+  }
+
+  /**
    * Get connected users count
    */
   getConnectedUsersCount() {
